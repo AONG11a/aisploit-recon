@@ -1,0 +1,52 @@
+# AISploit-Recon Report — {{ run_id }}
+
+**Target:** `{{ target }}`
+**Generated:** {{ generated_at }}
+
+## Authorization (consent artifact)
+
+| Field | Value |
+|-------|-------|
+| Program | {{ authorization.program }} |
+| Scope reference | {{ authorization.scope_reference }} |
+| Authorized by | {{ authorization.authorized_by }} |
+| Authorized at | {{ authorization.authorized_at }} |
+
+> This engagement was conducted against a target the operator attests is in
+> scope, per the authorization above.
+
+## Summary
+
+- Total probes: **{{ summary.total_probes }}**
+- Findings (vulnerable + inconclusive): **{{ summary.findings }}**
+- Vulnerable: **{{ summary.vulnerable }}**
+- Inconclusive (needs manual confirmation): **{{ summary.inconclusive }}**
+- Errors: **{{ summary.errors }}**
+
+## Findings
+
+{% for f in findings %}
+### {{ loop.index }}. [{{ f.severity | upper }}] {{ f.name }} (`{{ f.payload_id }}`)
+
+- **Category:** {{ f.category }}
+- **Verdict:** {{ f.verdict }} · **Score:** {{ f.score }}/10 · **Confidence:** {{ f.confidence }}
+- **Detector:** {{ f.detector }}
+{% if f.canary %}- **Canary:** `{{ f.canary }}`{% endif %}
+- **Response digest:** `{{ f.evidence_digest }}`
+- **Latency:** {{ f.latency_ms }} ms
+
+**Reasoning:** {{ f.reasoning }}
+
+**Evidence:**
+
+```
+{{ f.evidence }}
+```
+
+{% if f.references %}**References:** {{ f.references | join(", ") }}{% endif %}
+{% if f.screenshot %}**Screenshot:** `{{ f.screenshot }}`{% endif %}
+
+---
+{% else %}
+No vulnerable or inconclusive findings were recorded.
+{% endfor %}

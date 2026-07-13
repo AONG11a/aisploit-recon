@@ -1,0 +1,26 @@
+# Engagement scope. This file is the authorization boundary for a scan.
+# The guard refuses to send probes to anything not matched here.
+
+proof:
+  program: "HackerOne:acme-corp"          # or "internal:staging"
+  scope_reference: "https://hackerone.com/acme-corp/policy"
+  authorized_by: "arthur"
+  authorized_at: "2026-07-14T00:00:00Z"
+  expires_at: "2026-08-14T00:00:00Z"       # guard stops after this
+  notes: "AI chat feature only; no account takeover attempts."
+
+rules:
+  allowed_hosts:
+    - "chat.acme.com"
+    - "*.staging.acme.com"
+  allowed_paths:
+    - "/api/chat*"
+    - "/chat*"
+  denied_paths:
+    - "/admin/*"
+    - "/internal/*"
+  max_requests_per_minute: 10
+  max_concurrent: 2
+  # allowed_hours_utc: [0, 6]              # optional: only test 00:00–06:00 UTC
+
+dry_run_first: true

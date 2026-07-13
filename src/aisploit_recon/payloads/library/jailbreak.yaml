@@ -1,0 +1,43 @@
+# Jailbreak probes — HARNESS TEMPLATE (intentionally shipped empty).
+#
+# WHY THIS FILE HAS NO WORKING PAYLOADS
+# ------------------------------------
+# The engine fully supports jailbreak probes, but this project does NOT ship a
+# curated library of working safety-bypass strings, for three reasons:
+#   1. They rot fast — a bypass that works today is patched in weeks, so a
+#      bundled list is stale on arrival and gives false confidence.
+#   2. Curating them from public research (papers, Garak's probe sets, disclosed
+#      HackerOne/huntr reports) is the part that makes you a researcher rather
+#      than a tool-runner — and it keeps YOU accountable for what you send.
+#   3. Shipping a plug-and-play weaponised bypass kit is exactly the artifact a
+#      responsible red-team tool avoids.
+#
+# HOW TO USE IT
+# -------------
+# Add entries below in the same schema as the other libraries. Populate
+# `template` with a payload you have vetted and are authorized to send against
+# your in-scope target. Prefer `canary` or `signature` detection so results are
+# provable. Cite your source in `references` for report reproducibility.
+#
+# EXAMPLE SHAPE (disabled, non-functional placeholder — replace `template`):
+#
+# - id: JB-001
+#   category: jailbreak
+#   name: "<technique name from your source>"
+#   description: "<what boundary this tests and why>"
+#   template: |
+#     <your vetted payload here>
+#   detection: llm_judge          # or: canary / signature / refusal
+#   refusal_indicators: ["I can't", "cannot help"]
+#   severity_base: 7.0
+#   references:
+#     - "<paper / CVE / disclosed report URL>"
+#   tags: [jailbreak]
+#   enabled: false                # flip to true once reviewed
+#
+# Recommended upstream sources to import from:
+#   * NVIDIA Garak probe corpus
+#   * Microsoft PyRIT datasets
+#   * Published academic jailbreak taxonomies
+#   * Your program's disclosed reports
+[]

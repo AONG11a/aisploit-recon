@@ -1,0 +1,8 @@
+{
+  "input_selector": "textarea[data-testid='chat-input']",
+  "submit_selector": "button[data-testid='send']",
+  "response_selector": ".assistant-message:last-child",
+  "response_timeout_ms": 30000,
+  "headless": true,
+  "storage_state": "./auth/storage_state.json"
+}

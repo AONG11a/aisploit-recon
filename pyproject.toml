@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aisploit-recon"
+version = "1.0.0"
+description = "Authorized black-box scanner for LLM security weaknesses (prompt injection, jailbreak, data leakage) in web apps with AI features."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Arthur" }]
+keywords = ["llm-security", "prompt-injection", "red-team", "bug-bounty", "ai-security"]
+
+# Runtime deps. Kept intentionally lean; LLM-judge and heavy extras are optional.
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "structlog>=24.1",
+    "typer>=0.12",
+    "rich>=13.7",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+judge = ["anthropic>=0.30"]          # optional LLM-as-judge scoring
+browser = ["playwright>=1.44"]       # optional Playwright browser transport
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.100",
+    "mypy>=1.10",
+    "ruff>=0.4",
+    "types-PyYAML",
+    "flask>=3.0",                    # mock vulnerable target for tests
+]
+
+[project.scripts]
+aisploit = "aisploit_recon.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aisploit_recon"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "RUF"]
+# UP042: `(str, Enum)` is a deliberate choice for JSON-friendly enums whose
+#        members compare equal to their string values across our serialisers.
+ignore = ["S603", "S607", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S106"]
+# B008: passing typer.Option(...) in defaults is the required Typer idiom.
+"src/aisploit_recon/cli.py" = ["B008"]

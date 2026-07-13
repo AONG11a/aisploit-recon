@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "body_template": { "message": "{payload}" },
+  "response_path": "response",
+  "headers": { "Content-Type": "application/json" },
+  "auth_headers": { "Authorization": "Bearer PUT_YOUR_SESSION_TOKEN_HERE" },
+  "timeout_s": 30.0
+}

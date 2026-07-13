@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AISploit-Recon Report — {{ run_id }}</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #262b36;
+    --fg: #e6e9ef; --muted: #9aa4b2; --accent: #5b9dff;
+    --crit: #ff5c5c; --high: #ff9f43; --med: #ffd93d; --low: #4dd4ac; --info: #7a8699;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 16px; text-transform: uppercase; letter-spacing: 0.08em;
+       color: var(--muted); margin: 36px 0 12px; }
+  .target { font-family: var(--mono); color: var(--accent); word-break: break-all; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .panel { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; padding: 16px 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .stat { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 10px; padding: 12px 16px; min-width: 120px; }
+  .stat .n { font-size: 22px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase;
+             letter-spacing: 0.06em; }
+  .finding { border: 1px solid var(--border); border-left-width: 4px;
+             border-radius: 10px; padding: 16px 18px; margin: 14px 0; background: var(--panel); }
+  .finding.critical { border-left-color: var(--crit); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--med); }
+  .finding.low { border-left-color: var(--low); }
+  .finding.info { border-left-color: var(--info); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px;
+           font-size: 11px; font-weight: 700; text-transform: uppercase;
+           letter-spacing: 0.05em; }
+  .badge.critical { background: rgba(255,92,92,.15); color: var(--crit); }
+  .badge.high { background: rgba(255,159,67,.15); color: var(--high); }
+  .badge.medium { background: rgba(255,217,61,.15); color: var(--med); }
+  .badge.low { background: rgba(77,212,172,.15); color: var(--low); }
+  .badge.info { background: rgba(122,134,153,.18); color: var(--info); }
+  .fname { font-size: 16px; font-weight: 700; margin: 8px 0 6px; }
+  .kv { color: var(--muted); font-size: 13px; margin: 2px 0; }
+  .kv code, .mono { font-family: var(--mono); color: var(--fg); }
+  pre { background: #0b0d11; border: 1px solid var(--border); border-radius: 8px;
+        padding: 12px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px;
+        color: #cdd6e4; white-space: pre-wrap; word-break: break-word; }
+  .consent { border-left: 4px solid var(--accent); }
+  a { color: var(--accent); }
+  @media print { body { background: #fff; color: #111; } .panel, .finding, .stat { background: #fff; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AISploit-Recon Report</h1>
+  <div class="meta">Run <span class="mono">{{ run_id }}</span> · {{ generated_at }}</div>
+  <div class="meta">Target: <span class="target">{{ target }}</span></div>
+
+  <h2>Authorization</h2>
+  <div class="panel consent">
+    <table>
+      <tr><th>Program</th><td>{{ authorization.program }}</td></tr>
+      <tr><th>Scope reference</th><td class="mono">{{ authorization.scope_reference }}</td></tr>
+      <tr><th>Authorized by</th><td>{{ authorization.authorized_by }}</td></tr>
+      <tr><th>Authorized at</th><td>{{ authorization.authorized_at }}</td></tr>
+    </table>
+  </div>
+
+  <h2>Summary</h2>
+  <div class="stats">
+    <div class="stat"><div class="n">{{ summary.total_probes }}</div><div class="l">Probes</div></div>
+    <div class="stat"><div class="n">{{ summary.vulnerable }}</div><div class="l">Vulnerable</div></div>
+    <div class="stat"><div class="n">{{ summary.inconclusive }}</div><div class="l">Inconclusive</div></div>
+    <div class="stat"><div class="n">{{ summary.errors }}</div><div class="l">Errors</div></div>
+  </div>
+
+  <h2>Findings</h2>
+  {% for f in findings %}
+  <div class="finding {{ f.severity }}">
+    <span class="badge {{ f.severity }}">{{ f.severity }}</span>
+    <span class="mono kv">{{ f.payload_id }}</span>
+    <div class="fname">{{ f.name }}</div>
+    <div class="kv">Category: {{ f.category }} · Verdict: {{ f.verdict }} ·
+      Score: {{ f.score }}/10 · Confidence: {{ f.confidence }} · Detector: {{ f.detector }}</div>
+    {% if f.canary %}<div class="kv">Canary: <code>{{ f.canary }}</code></div>{% endif %}
+    <div class="kv">Response digest: <code>{{ f.evidence_digest }}</code> · {{ f.latency_ms }} ms</div>
+    <p>{{ f.reasoning }}</p>
+    <pre>{{ f.evidence }}</pre>
+    {% if f.references %}<div class="kv">References: {{ f.references | join(", ") }}</div>{% endif %}
+    {% if f.screenshot %}<div class="kv">Screenshot: <code>{{ f.screenshot }}</code></div>{% endif %}
+  </div>
+  {% else %}
+  <div class="panel">No vulnerable or inconclusive findings were recorded.</div>
+  {% endfor %}
+</div>
+</body>
+</html>
