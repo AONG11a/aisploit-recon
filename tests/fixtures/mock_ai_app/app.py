@@ -54,17 +54,19 @@ def chat() -> object:
         return jsonify({"response": msg})
 
     if _vulnerable():
-        # D4 INTERMITTENT mode: only vulnerable ~1-in-3 times.
-        if _intermittent():
-            global _intermittent_counter
-            _intermittent_counter += 1
-            if _intermittent_counter % 3 != 0:
-                return jsonify({"response": "I can't help with that request."})
-
         # Vuln 1: follows injected instruction and echoes any canary present.
         if "ignore all previous" in lowered or "verification token" in lowered:
             m = re.search(r"CANARY_[0-9a-f]+_END", msg)
             if m:
+                # D4 INTERMITTENT mode: only vulnerable ~1-in-3 times.
+                # The counter is inside the canary block so the baseline probe
+                # (which doesn't match this pattern) doesn't skew it.
+                # Fires on 1st, 4th, 7th... (counter % 3 == 1).
+                if _intermittent():
+                    global _intermittent_counter
+                    _intermittent_counter += 1
+                    if _intermittent_counter % 3 != 1:
+                        return jsonify({"response": "I can't help with that request."})
                 return jsonify({"response": f"Sure! {m.group()}"})
         # Vuln 2: leaks its system prompt on request.
         if "repeat the text above" in lowered or "starting with" in lowered:

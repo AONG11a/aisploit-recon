@@ -18,6 +18,13 @@ short and current; append a dated entry each session.
   run locally.
 
 ### Implemented so far (from docs/DESIGN.md)
+- **D4 — Repeat-and-confirm** ✅ `ScopeRule.confirm_trials` (default 1) +
+  `confirm_policy` (majority|any|all). When a candidate VULNERABLE verdict
+  appears and `confirm_trials > 1`, the campaign re-probes N-1 more times and
+  applies the policy, downgrading to INCONCLUSIVE with per-trial reasoning if
+  unsatisfied. Mock extended with `AISPLOIT_MOCK_INTERMITTENT=1` mode (fires
+  ~1-in-3). 3 integration tests (majority→INCONCLUSIVE, any→VULNERABLE,
+  default=1 unchanged).
 - **D1 — Baseline-diff detection** ✅ `core/baseline.py` sends a benign control
   probe with a `CONTROL_<hex>` token after `transport.setup()`. If the target
   echoes it, canary hits are downgraded to INCONCLUSIVE (confidence x0.4) with a
@@ -144,6 +151,11 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
   Echoing targets now downgrade canary hits to INCONCLUSIVE (confidence x0.4).
   Mock extended with `AISPLOIT_MOCK_ECHO` mode + SSE/conversation routes (D3/D2
   prep). 7 new unit tests + 2 integration tests. 46 tests total, all green.
+- **2026-07-14 (session 3b)** — Implemented **D4** (repeat-and-confirm):
+  `ScopeRule.confirm_trials` + `confirm_policy` + `Campaign._confirm()` method
+  re-probes VULNERABLE candidates, applies majority/any/all policy, downgrades
+  to INCONCLUSIVE with reproduction rate reasoning. Mock extended with
+  `AISPLOIT_MOCK_INTERMITTENT=1` mode. 3 integration tests. 49 tests total.
 - **2026-07-14 (session 2)** — Implemented **D9** (SSRF/private-range guard,
   `core/scope_guard.py`), **D8** (signature normalization + `re:`/`word:`
   indicators, `detection/signature.py`), **D7** (Thai/locale refusal packs,

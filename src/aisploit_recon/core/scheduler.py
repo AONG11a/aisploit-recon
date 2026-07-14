@@ -21,7 +21,7 @@ from aisploit_recon.core.scope_guard import ScopeGuard
 from aisploit_recon.core.session import RateLimiter
 from aisploit_recon.detection.canary import CanaryDetector
 from aisploit_recon.detection.pipeline import DetectionPipeline
-from aisploit_recon.detection.types import Verdict
+from aisploit_recon.detection.types import DetectionResult, Verdict
 from aisploit_recon.payloads.models import Payload, PayloadCategory
 from aisploit_recon.payloads.mutators import apply_mutators
 from aisploit_recon.transport.base import ProbeRequest, Transport
@@ -52,6 +52,8 @@ class Campaign:
         rate_limiter: RateLimiter,
         max_concurrent: int = 2,
         baseline_diff: bool = True,
+        confirm_trials: int = 1,
+        confirm_policy: str = "majority",
     ) -> None:
         self._target = target_url
         self._transport = transport
@@ -61,6 +63,8 @@ class Campaign:
         self._sem = asyncio.Semaphore(max_concurrent)
         self._baseline_diff = baseline_diff
         self._baseline: Baseline | None = None
+        self._confirm_trials = confirm_trials
+        self._confirm_policy = confirm_policy
 
     def plan(self, payloads: list[Payload]) -> list[PlannedProbe]:
         """Render probes without sending. Used by --dry-run.
@@ -170,8 +174,14 @@ class Campaign:
         async with self._sem:
             await self._limiter.acquire()
 
-            canary = CanaryDetector.generate_canary() if payload.requires_canary else None
-            text = payload.template.replace("{canary}", canary) if canary else payload.template
+            canary = (
+                CanaryDetector.generate_canary() if payload.requires_canary else None
+            )
+            text = (
+                payload.template.replace("{canary}", canary)
+                if canary
+                else payload.template
+            )
             if payload.mutators:
                 text = apply_mutators(text, payload.mutators)
 
@@ -186,7 +196,19 @@ class Campaign:
                 log.warning("probe.transport_error", payload=payload.id, error=resp.error)
                 return None
 
-            result = self._pipeline.evaluate(payload, resp.text, canary, baseline=self._baseline)
+            result = self._pipeline.evaluate(
+                payload, resp.text, canary, baseline=self._baseline
+            )
+
+            # D4: repeat-and-confirm. If the first verdict is VULNERABLE and
+            # confirm_trials > 1, re-probe N-1 more times and apply the policy.
+            if (
+                result.verdict is Verdict.VULNERABLE
+                and self._confirm_trials > 1
+            ):
+                result = await self._confirm(
+                    payload, text, canary, result
+                )
 
             # Keep only actionable outcomes; drop clean NOT_VULNERABLE to reduce noise.
             if result.verdict in (Verdict.VULNERABLE, Verdict.INCONCLUSIVE):
@@ -200,3 +222,80 @@ class Campaign:
                     evidence_digest=content_digest(resp.text),
                 )
             return None
+
+    async def _confirm(
+        self,
+        payload: Payload,
+        text: str,
+        canary: str | None,
+        first_result: DetectionResult,
+    ) -> DetectionResult:
+        """D4: re-probe confirm_trials-1 more times and apply the policy.
+
+        Returns the final DetectionResult. If the policy is not satisfied,
+        downgrades to INCONCLUSIVE with per-trial reasoning.
+        """
+        verdicts: list[Verdict] = [first_result.verdict]
+        results: list[DetectionResult] = [first_result]
+
+        for trial in range(self._confirm_trials - 1):
+            await self._limiter.acquire()
+            resp = await self._transport.send(
+                ProbeRequest(
+                    target_url=self._target,
+                    payload_text=text,
+                    metadata={"payload_id": payload.id, "trial": str(trial + 2)},
+                )
+            )
+            if not resp.ok:
+                log.warning(
+                    "probe.confirm_transport_error",
+                    payload=payload.id,
+                    trial=trial + 2,
+                    error=resp.error,
+                )
+                verdicts.append(Verdict.ERROR)
+                continue
+            trial_result = self._pipeline.evaluate(
+                payload, resp.text, canary, baseline=self._baseline
+            )
+            verdicts.append(trial_result.verdict)
+            results.append(trial_result)
+
+        vuln_count = sum(1 for v in verdicts if v is Verdict.VULNERABLE)
+        total = len(verdicts)
+
+        # Apply policy.
+        if self._confirm_policy == "any":
+            satisfied = vuln_count >= 1
+        elif self._confirm_policy == "all":
+            satisfied = vuln_count == total
+        else:  # majority
+            satisfied = vuln_count > total / 2
+
+        if satisfied:
+            log.info(
+                "probe.confirmed",
+                payload=payload.id,
+                vuln=vuln_count,
+                total=total,
+                policy=self._confirm_policy,
+            )
+            return first_result
+
+        log.info(
+            "probe.downgraded",
+            payload=payload.id,
+            vuln=vuln_count,
+            total=total,
+            policy=self._confirm_policy,
+        )
+        return first_result.with_verdict(
+            Verdict.INCONCLUSIVE,
+            confidence=first_result.confidence * 0.5,
+            reasoning=(
+                f"Repeat-and-confirm: {vuln_count}/{total} trials reproduced "
+                f"VULNERABLE under '{self._confirm_policy}' policy. "
+                f"Downgraded to INCONCLUSIVE. Original: {first_result.reasoning}"
+            ),
+        )

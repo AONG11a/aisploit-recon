@@ -74,6 +74,20 @@ class ScopeRule(BaseModel):
     # downgraded to INCONCLUSIVE to suppress false positives.
     baseline_diff: bool = True
 
+    # D4: repeat-and-confirm. When confirm_trials > 1, a candidate VULNERABLE
+    # verdict is re-probed (confirm_trials-1) more times; the final verdict is
+    # kept only if the policy is satisfied. Default 1 = today's behaviour.
+    confirm_trials: int = Field(default=1, ge=1, le=10)
+    confirm_policy: str = Field(default="majority")  # majority | any | all
+
+    @field_validator("confirm_policy")
+    @classmethod
+    def _validate_confirm_policy(cls, v: str) -> str:
+        allowed = {"majority", "any", "all"}
+        if v not in allowed:
+            raise ValueError(f"confirm_policy must be one of {allowed}, got {v!r}")
+        return v
+
     @field_validator("allowed_hosts")
     @classmethod
     def _reject_broad_hosts(cls, hosts: list[str]) -> list[str]:

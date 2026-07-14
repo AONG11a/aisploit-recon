@@ -154,6 +154,8 @@ def scan(
             rate_limiter=rate,
             max_concurrent=scope_cfg.rules.max_concurrent,
             baseline_diff=scope_cfg.rules.baseline_diff,
+            confirm_trials=scope_cfg.rules.confirm_trials,
+            confirm_policy=scope_cfg.rules.confirm_policy,
         )
 
         if not live:

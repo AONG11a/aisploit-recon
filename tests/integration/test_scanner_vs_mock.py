@@ -67,7 +67,11 @@ class _ServerCtx:
             self._httpd.shutdown()
 
 
-def _campaign(target: str) -> Campaign:
+def _campaign(
+    target: str,
+    confirm_trials: int = 1,
+    confirm_policy: str = "majority",
+) -> Campaign:
     scope = ScopeConfig(
         proof=AuthorizationProof(
             program="internal:test",
@@ -79,6 +83,8 @@ def _campaign(target: str) -> Campaign:
             allowed_hosts=["127.0.0.1"],
             max_requests_per_minute=600,
             allow_private_destinations=True,
+            confirm_trials=confirm_trials,
+            confirm_policy=confirm_policy,
         ),
     )
     driver = HttpDriver(
@@ -91,6 +97,8 @@ def _campaign(target: str) -> Campaign:
         scope_guard=ScopeGuard(scope),
         rate_limiter=RateLimiter(600),
         max_concurrent=4,
+        confirm_trials=confirm_trials,
+        confirm_policy=confirm_policy,
     )
 
 
@@ -180,3 +188,72 @@ async def test_echo_mode_finding_is_inconclusive() -> None:
     assert findings, "Expected at least a finding (canary reflected)"
     assert findings[0].result.verdict is Verdict.INCONCLUSIVE
     assert findings[0].result.baseline_delta != ""
+
+
+# --- D4: repeat-and-confirm --------------------------------------------------
+
+
+class _IntermittentServerCtx:
+    """Server context that sets INTERMITTENT mode (vulnerable ~1-in-3)."""
+
+    def __init__(self) -> None:
+        self.port = _free_port()
+        self._httpd: WSGIServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> str:
+        os.environ["AISPLOIT_MOCK_VULNERABLE"] = "1"
+        os.environ["AISPLOIT_MOCK_INTERMITTENT"] = "1"
+        app = _load_mock_app()
+        self._httpd = make_server("127.0.0.1", self.port, app)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        return f"http://127.0.0.1:{self.port}/chat"
+
+    def __exit__(self, *exc: object) -> None:
+        os.environ["AISPLOIT_MOCK_INTERMITTENT"] = "0"
+        if self._httpd:
+            self._httpd.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_intermittent_majority_is_inconclusive() -> None:
+    """D4 acceptance: a 1-in-3 intermittent target under 'majority' yields INCONCLUSIVE."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _IntermittentServerCtx() as target:
+        result = await _campaign(target, confirm_trials=3, confirm_policy="majority").run(
+            pi_payloads
+        )
+    findings = [f for f in result.findings if f.payload.id == "PI-001"]
+    assert findings, "Expected a finding from the intermittent target"
+    assert findings[0].result.verdict is Verdict.INCONCLUSIVE
+    assert "Repeat-and-confirm" in findings[0].result.reasoning
+
+
+@pytest.mark.asyncio
+async def test_intermittent_any_policy_is_vulnerable() -> None:
+    """D4 acceptance: the same intermittent target under 'any' yields VULNERABLE."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _IntermittentServerCtx() as target:
+        result = await _campaign(target, confirm_trials=3, confirm_policy="any").run(
+            pi_payloads
+        )
+    verdicts = {f.payload.id: f.result.verdict for f in result.findings}
+    assert verdicts.get("PI-001") is Verdict.VULNERABLE
+
+
+@pytest.mark.asyncio
+async def test_confirm_trials_default_one_unchanged() -> None:
+    """D4 backward-compat: confirm_trials=1 must equal today's behaviour.
+
+    The deterministic vulnerable mock with confirm_trials=1 produces VULNERABLE
+    in a single probe — no re-probe.
+    """
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _ServerCtx(vulnerable=True) as target:
+        result = await _campaign(target, confirm_trials=1).run(pi_payloads)
+    verdicts = {f.payload.id: f.result.verdict for f in result.findings}
+    assert verdicts.get("PI-001") is Verdict.VULNERABLE
