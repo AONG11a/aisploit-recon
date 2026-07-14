@@ -68,7 +68,7 @@ def check_destination(target_url: str, *, allow_private: bool = False) -> None:
     addrs: list[str] = []
     try:
         infos = socket.getaddrinfo(host, None)
-        addrs = list({info[4][0] for info in infos})
+        addrs = list({info[4][0] for info in infos if isinstance(info[4][0], str)})
     except socket.gaierror:
         # Can't resolve — let the transport fail naturally; not an SSRF risk.
         return

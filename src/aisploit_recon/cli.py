@@ -20,6 +20,7 @@ from rich.table import Table
 
 from aisploit_recon.config.scope import ScopeConfig
 from aisploit_recon.config.settings import load_settings
+from aisploit_recon.core.models import CampaignResult
 from aisploit_recon.core.scheduler import Campaign
 from aisploit_recon.core.scope_guard import ScopeGuard, ScopeViolation
 from aisploit_recon.core.session import RateLimiter
@@ -27,9 +28,11 @@ from aisploit_recon.core.ssrf_guard import SSRFViolation, check_destination
 from aisploit_recon.detection.llm_judge import AnthropicJudgeBackend, LLMJudge
 from aisploit_recon.detection.pipeline import DetectionPipeline
 from aisploit_recon.evidence.store import EvidenceStore
+from aisploit_recon.payloads.models import Payload
 from aisploit_recon.payloads.registry import PayloadRegistry
 from aisploit_recon.reporting.generator import ReportGenerator
 from aisploit_recon.transport.http_driver import HttpConfig, HttpDriver
+from aisploit_recon.transport.playwright_driver import PlaywrightDriver
 from aisploit_recon.utils.logging import configure_logging
 
 app = typer.Typer(add_completion=False, help="Authorized LLM security scanner.")
@@ -62,7 +65,9 @@ def _build_pipeline(judge: bool) -> DetectionPipeline:
     return DetectionPipeline(llm_judge=None)
 
 
-def _build_transport(transport: str, transport_config: Path, evidence_dir: Path):
+def _build_transport(
+    transport: str, transport_config: Path, evidence_dir: Path
+) -> HttpDriver | PlaywrightDriver:
     try:
         cfg = json.loads(transport_config.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -83,10 +88,7 @@ def _build_transport(transport: str, transport_config: Path, evidence_dir: Path)
             )
         if transport == "playwright":
             try:
-                from aisploit_recon.transport.playwright_driver import (
-                    PlaywrightConfig,
-                    PlaywrightDriver,
-                )
+                from aisploit_recon.transport.playwright_driver import PlaywrightConfig
             except ImportError as exc:
                 raise typer.BadParameter(
                     "Playwright transport requires the [browser] extra: "
@@ -151,6 +153,7 @@ def scan(
             scope_guard=guard,
             rate_limiter=rate,
             max_concurrent=scope_cfg.rules.max_concurrent,
+            baseline_diff=scope_cfg.rules.baseline_diff,
         )
 
         if not live:
@@ -175,7 +178,7 @@ def scan(
         raise typer.Exit(code=2) from exc
 
 
-def _dry_run(campaign: Campaign, payloads: list, target: str) -> None:
+def _dry_run(campaign: Campaign, payloads: list[Payload], target: str) -> None:
     planned = campaign.plan(payloads)
     console.print(f"[bold yellow]DRY RUN[/] — {len(planned)} probes would be sent to {target}\n")
     table = Table(show_header=True, header_style="bold")
@@ -188,7 +191,7 @@ def _dry_run(campaign: Campaign, payloads: list, target: str) -> None:
     console.print("\n[dim]Re-run with [bold]--live[/bold] to send probes.[/dim]")
 
 
-def _print_summary(result, outputs: dict) -> None:
+def _print_summary(result: CampaignResult, outputs: dict[str, Path]) -> None:
     console.print(
         f"\n[bold]Scan complete[/] — probes: {result.total_probes}, "
         f"vulnerable: [red]{result.vulnerable_count}[/], "

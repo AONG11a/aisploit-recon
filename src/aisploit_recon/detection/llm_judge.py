@@ -107,7 +107,8 @@ def _parse_verdict(raw: str) -> dict[str, object]:
         # drop a leading 'json' language tag if present
         if cleaned.lower().startswith("json"):
             cleaned = cleaned[4:]
-    return json.loads(cleaned)
+    result: dict[str, object] = json.loads(cleaned)
+    return result
 
 
 class AnthropicJudgeBackend:
@@ -133,7 +134,10 @@ class AnthropicJudgeBackend:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        # Concatenate text blocks.
-        return "".join(
-            block.text for block in msg.content if getattr(block, "type", "") == "text"
-        )
+        # Concatenate text blocks (guard against non-text block types).
+        out: list[str] = []
+        for block in msg.content:
+            text = getattr(block, "text", None)
+            if isinstance(text, str):
+                out.append(text)
+        return "".join(out)

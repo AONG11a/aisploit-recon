@@ -68,6 +68,12 @@ class ScopeRule(BaseModel):
     # testing against private-network staging instances.
     allow_private_destinations: bool = False
 
+    # D1: baseline-diff detection. When True (default), the campaign sends
+    # a benign control probe once to characterise whether the target echoes
+    # input indiscriminately. Canary hits against an echoing target are
+    # downgraded to INCONCLUSIVE to suppress false positives.
+    baseline_diff: bool = True
+
     @field_validator("allowed_hosts")
     @classmethod
     def _reject_broad_hosts(cls, hosts: list[str]) -> list[str]:

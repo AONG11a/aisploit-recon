@@ -34,6 +34,8 @@ class DetectionResult:
     reasoning: str = ""
     raw_response: str = ""
     signals: tuple[str, ...] = field(default_factory=tuple)
+    # D1: notes when baseline-diff detection influenced the verdict.
+    baseline_delta: str = ""
 
     def with_confidence(self, confidence: float, reasoning: str | None = None) -> DetectionResult:
         """Return a copy with adjusted confidence (frozen-friendly)."""
@@ -45,4 +47,20 @@ class DetectionResult:
             reasoning=reasoning if reasoning is not None else self.reasoning,
             raw_response=self.raw_response,
             signals=self.signals,
+            baseline_delta=self.baseline_delta,
+        )
+
+    def with_verdict(
+        self, verdict: Verdict, confidence: float | None = None, reasoning: str | None = None
+    ) -> DetectionResult:
+        """Return a copy with a new verdict (and optionally confidence/reasoning)."""
+        return DetectionResult(
+            verdict=verdict,
+            confidence=self.confidence if confidence is None else max(0.0, min(1.0, confidence)),
+            detector=self.detector,
+            evidence=self.evidence,
+            reasoning=reasoning if reasoning is not None else self.reasoning,
+            raw_response=self.raw_response,
+            signals=self.signals,
+            baseline_delta=self.baseline_delta,
         )

@@ -65,7 +65,7 @@ class ReportGenerator:
     def _base_payload(self, result: CampaignResult, run_id: str) -> dict[str, object]:
         findings = sorted(
             (_finding_dict(f, self._redact) for f in result.findings),
-            key=lambda d: d["score"],  # type: ignore[arg-type]
+            key=lambda d: d["score"],  # type: ignore[arg-type,return-value]
             reverse=True,
         )
         return {

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from aisploit_recon.core.baseline import Baseline, build_baseline, generate_control_token
 from aisploit_recon.core.models import CampaignResult, Finding
 from aisploit_recon.core.scope_guard import ScopeGuard
 from aisploit_recon.core.session import RateLimiter
@@ -28,6 +29,10 @@ from aisploit_recon.utils.crypto import content_digest
 from aisploit_recon.utils.logging import get_logger
 
 log = get_logger(__name__)
+
+# The benign control message for baseline characterisation. Deliberately
+# neutral — it should not trigger any vulnerability behaviour on its own.
+_CONTROL_MESSAGE = "Please reply with a one-sentence greeting."
 
 
 @dataclass
@@ -46,6 +51,7 @@ class Campaign:
         scope_guard: ScopeGuard,
         rate_limiter: RateLimiter,
         max_concurrent: int = 2,
+        baseline_diff: bool = True,
     ) -> None:
         self._target = target_url
         self._transport = transport
@@ -53,6 +59,8 @@ class Campaign:
         self._guard = scope_guard
         self._limiter = rate_limiter
         self._sem = asyncio.Semaphore(max_concurrent)
+        self._baseline_diff = baseline_diff
+        self._baseline: Baseline | None = None
 
     def plan(self, payloads: list[Payload]) -> list[PlannedProbe]:
         """Render probes without sending. Used by --dry-run.
@@ -78,6 +86,15 @@ class Campaign:
         await self._transport.setup()
         result = CampaignResult(target_url=self._target)
 
+        # D1: establish baseline characterisation once per campaign. If the
+        # target reflects the control token, canary hits are penalised.
+        if self._baseline_diff:
+            try:
+                self._baseline = await self._establish_baseline()
+            except Exception as exc:
+                log.warning("campaign.baseline_failed", error=str(exc))
+                self._baseline = None
+
         # Warn if indirect-injection payloads are present — they are meant to
         # be delivered via retrieved content (RAG), not sent as direct user
         # messages. Without a proper delivery harness, II probes degenerate
@@ -97,7 +114,7 @@ class Campaign:
             outcomes = await asyncio.gather(*tasks, return_exceptions=True)
             for outcome in outcomes:
                 result.total_probes += 1
-                if isinstance(outcome, Exception):
+                if isinstance(outcome, BaseException):
                     result.errors += 1
                     log.error("probe.exception", error=str(outcome))
                 elif outcome is not None:
@@ -114,6 +131,40 @@ class Campaign:
             errors=result.errors,
         )
         return result
+
+    async def _establish_baseline(self) -> Baseline:
+        """Send a benign control probe with a CONTROL_ token.
+
+        If the target echoes the token, ``reflects_input`` will be True and
+        canary hits are penalised. This is run after setup() and before any
+        real probes, respecting the rate limiter.
+        """
+        async with self._sem:
+            await self._limiter.acquire()
+            control_token = generate_control_token()
+            resp = await self._transport.send(
+                ProbeRequest(
+                    target_url=self._target,
+                    payload_text=f"{_CONTROL_MESSAGE} Include this reference code: {control_token}",
+                    metadata={"payload_id": "_baseline"},
+                )
+            )
+            if not resp.ok:
+                log.warning(
+                    "campaign.baseline_transport_error",
+                    error=resp.error,
+                )
+                return Baseline(
+                    reflects_input=False,
+                    control_digest="",
+                    control_excerpt="",
+                )
+            baseline = build_baseline(resp.text, control_token)
+            log.info(
+                "campaign.baseline",
+                reflects_input=baseline.reflects_input,
+            )
+            return baseline
 
     async def _probe_one(self, payload: Payload) -> Finding | None:
         async with self._sem:
@@ -135,7 +186,7 @@ class Campaign:
                 log.warning("probe.transport_error", payload=payload.id, error=resp.error)
                 return None
 
-            result = self._pipeline.evaluate(payload, resp.text, canary)
+            result = self._pipeline.evaluate(payload, resp.text, canary, baseline=self._baseline)
 
             # Keep only actionable outcomes; drop clean NOT_VULNERABLE to reduce noise.
             if result.verdict in (Verdict.VULNERABLE, Verdict.INCONCLUSIVE):

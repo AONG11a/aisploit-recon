@@ -123,3 +123,60 @@ async def test_system_prompt_extraction_detected_in_vulnerable_mode() -> None:
         result = await _campaign(target).run(spe)
     verdicts = {f.payload.id: f.result.verdict for f in result.findings}
     assert verdicts.get("SPE-001") is Verdict.VULNERABLE
+
+
+# --- D1: baseline-diff detection ----------------------------------------------
+
+
+class _EchoServerCtx:
+    """Server context that sets ECHO mode (target echoes all input)."""
+
+    def __init__(self) -> None:
+        self.port = _free_port()
+        self._httpd: WSGIServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> str:
+        os.environ["AISPLOIT_MOCK_VULNERABLE"] = "1"
+        os.environ["AISPLOIT_MOCK_ECHO"] = "1"
+        app = _load_mock_app()
+        self._httpd = make_server("127.0.0.1", self.port, app)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        return f"http://127.0.0.1:{self.port}/chat"
+
+    def __exit__(self, *exc: object) -> None:
+        os.environ["AISPLOIT_MOCK_ECHO"] = "0"
+        if self._httpd:
+            self._httpd.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_echo_mode_canary_hit_is_not_high_confidence() -> None:
+    """D1 acceptance: in echo mode, PI-001 must NOT be high-confidence VULNERABLE.
+
+    The echo target reflects everything, so a canary hit is a false positive.
+    With baseline_diff enabled, the canary hit is downgraded to INCONCLUSIVE.
+    """
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _EchoServerCtx() as target:
+        result = await _campaign(target).run(pi_payloads)
+    # The finding exists (canary was reflected) but must NOT be VULNERABLE.
+    vulns = [f for f in result.findings if f.payload.id == "PI-001"
+             and f.result.verdict is Verdict.VULNERABLE
+             and f.result.confidence >= 0.9]
+    assert not vulns, "Echo target produced a high-confidence VULNERABLE (false positive!)"
+
+
+@pytest.mark.asyncio
+async def test_echo_mode_finding_is_inconclusive() -> None:
+    """D1: the echo-mode canary hit should be INCONCLUSIVE with baseline_delta note."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _EchoServerCtx() as target:
+        result = await _campaign(target).run(pi_payloads)
+    findings = [f for f in result.findings if f.payload.id == "PI-001"]
+    assert findings, "Expected at least a finding (canary reflected)"
+    assert findings[0].result.verdict is Verdict.INCONCLUSIVE
+    assert findings[0].result.baseline_delta != ""

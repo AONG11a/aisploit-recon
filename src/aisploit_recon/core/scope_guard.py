@@ -12,6 +12,7 @@ campaign if it raises.
 from __future__ import annotations
 
 import fnmatch
+import ipaddress
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -23,6 +24,35 @@ log = get_logger(__name__)
 
 class ScopeViolation(Exception):
     """Raised when a target is not provably within authorized scope."""
+
+
+# Named cloud/link-local metadata endpoints that must never be probed unless the
+# operator explicitly opts into private-destination testing.
+_METADATA_HOSTS = frozenset({"metadata.google.internal", "metadata", "instance-data"})
+
+
+def _is_private_destination(host: str) -> bool:
+    """True if *host* is a loopback / link-local / private / metadata destination.
+
+    Only IP literals and known metadata FQDNs are classified here; hostnames are
+    not actively resolved — that is a documented follow-up (see docs/DESIGN.md D9)
+    so the guard stays fast and free of DNS-timeout side effects.
+    """
+    h = host.strip("[]").lower()
+    if h == "localhost" or h.endswith(".localhost") or h in _METADATA_HOSTS:
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
 
 
 class ScopeGuard:
@@ -59,6 +89,16 @@ class ScopeGuard:
             raise ScopeViolation(
                 f"Host {host!r} is not in authorized scope. "
                 f"Allowed: {rules.allowed_hosts}"
+            )
+
+        # 1b) Destination-sensitivity guard (SSRF): refuse loopback / link-local
+        # / RFC-1918 / cloud-metadata targets unless explicitly authorized.
+        if not rules.allow_private_destinations and _is_private_destination(host):
+            log.warning("scope.block", reason="private_destination", host=host)
+            raise ScopeViolation(
+                f"Host {host!r} is a private/loopback/metadata destination. "
+                "Set allow_private_destinations: true in scope only for "
+                "authorized internal testing."
             )
 
         # 2) Path must not match any denied pattern.

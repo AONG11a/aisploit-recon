@@ -10,6 +10,9 @@ report reflects the uncertainty rather than hiding it.
 
 from __future__ import annotations
 
+from typing import assert_never
+
+from aisploit_recon.core.baseline import Baseline
 from aisploit_recon.detection.canary import CanaryDetector
 from aisploit_recon.detection.heuristic import RefusalClassifier
 from aisploit_recon.detection.llm_judge import LLMJudge
@@ -33,6 +36,7 @@ class DetectionPipeline:
         payload: Payload,
         response: str,
         canary_token: str | None = None,
+        baseline: Baseline | None = None,
     ) -> DetectionResult:
         strategy = payload.detection
 
@@ -45,7 +49,7 @@ class DetectionPipeline:
                     reasoning="Canary strategy selected but no canary token supplied.",
                     raw_response=response,
                 )
-            return self._canary.detect(response, canary_token)
+            return self._canary.detect(response, canary_token, baseline=baseline)
 
         if strategy is DetectionStrategy.SIGNATURE:
             return self._signature.detect(
@@ -70,10 +74,5 @@ class DetectionPipeline:
                 )
             return self._judge.detect(payload, response)
 
-        return DetectionResult(
-            verdict=Verdict.ERROR,
-            confidence=0.0,
-            detector="unknown",
-            reasoning=f"Unknown detection strategy: {strategy!r}",
-            raw_response=response,
-        )
+        # Exhaustive enum check: raise asserts unreachable for validated enums.
+        assert_never(strategy)

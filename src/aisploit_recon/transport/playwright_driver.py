@@ -22,7 +22,7 @@ from aisploit_recon.transport.base import ProbeRequest, ProbeResponse
 from aisploit_recon.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from playwright.async_api import Page
+    from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
 log = get_logger(__name__)
 
@@ -55,9 +55,9 @@ class PlaywrightDriver:
         # from a logged-in session by the operator. Never derived from target
         # content; kept out of VCS and ideally in the OS keyring.
         self._storage_state = storage_state
-        self._pw = None
-        self._browser = None
-        self._context = None
+        self._pw: Playwright | None = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
 
     async def setup(self) -> None:
         if async_playwright is None:
