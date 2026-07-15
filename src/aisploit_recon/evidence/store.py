@@ -108,6 +108,36 @@ class EvidenceStore:
         )
         self._conn.commit()
 
+    def fetch_run(self, run_id: str) -> list[dict[str, object]]:
+        """Return all findings for a run as column-keyed dicts (severity desc).
+
+        Used by ``reporting.export`` for diff and CI-gate. Read-only.
+        """
+        cur = self._conn.execute(
+            "SELECT * FROM findings WHERE run_id = ? "
+            "ORDER BY severity_score DESC, id ASC",
+            (run_id,),
+        )
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+    def fetch_finding(self, run_id: str, payload_id: str) -> dict[str, object] | None:
+        """Return one finding by ``(run_id, payload_id)``, or ``None`` if absent.
+
+        If a payload was probed more than once in a run, the most recent row
+        (highest id) is returned. Callers raise ``KeyError`` on ``None``.
+        """
+        cur = self._conn.execute(
+            "SELECT * FROM findings WHERE run_id = ? AND payload_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (run_id, payload_id),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = [c[0] for c in cur.description]
+        return dict(zip(cols, row, strict=True))
+
     def purge_old(self, retention_days: int) -> int:
         """Delete findings older than ``retention_days``. Also attempts to
         delete associated screenshot files. Returns the number of rows deleted.
