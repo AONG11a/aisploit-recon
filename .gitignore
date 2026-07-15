@@ -15,3 +15,6 @@ venv/
 dist/
 build/
 *.egg-info/
+
+AI_HANDOFF.md
+docs/AI_TASK_PROMPT.md
