@@ -8,6 +8,7 @@ configurable so it adapts to different APIs: you supply where the payload goes
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from typing import Any, cast
@@ -44,6 +45,19 @@ class HttpConfig:
     conversation_endpoint: str | None = None
     # The placeholder for the turns array inside conversation body_template.
     turns_placeholder: str = "{turns}"
+    # D3: streaming. When ``stream`` is true, ``send`` reads a streamed response
+    # (Server-Sent Events or NDJSON) and assembles the full message from deltas.
+    # This is what most modern chat APIs return; without it a streaming target
+    # raises on ``resp.json()`` and silently yields zero findings.
+    stream: bool = False
+    stream_format: str = "sse"  # "sse" | "ndjson"
+    # Dotted path to the incremental text inside each streamed chunk.
+    stream_delta_path: str = "choices.0.delta.content"
+    # A ``data:`` line equal to this sentinel ends the stream (SSE convention).
+    stream_done_sentinel: str = "[DONE]"
+    # Safety cap on assembled length so a hung/adversarial stream can't grow
+    # unbounded (the request is also bound by ``timeout_s``).
+    stream_max_chars: int = 1_000_000
 
 
 def _inject_payload(obj: Any, placeholder: str, value: str) -> Any:
@@ -96,6 +110,8 @@ class HttpDriver:
         if self._client is None:
             raise RuntimeError("HttpDriver.setup() must be called before send()")
         start = time.perf_counter()
+        if self._cfg.stream:
+            return await self._send_streaming(request.target_url, request, start)
         body = None
         if self._cfg.body_template is not None:
             body = _inject_payload(
@@ -118,6 +134,71 @@ class HttpDriver:
             latency = (time.perf_counter() - start) * 1000
             log.warning("http.probe_error", target=request.target_url, error=str(exc))
             return ProbeResponse(text="", latency_ms=latency, error=str(exc))
+
+    async def _send_streaming(
+        self, url: str, request: ProbeRequest, start: float
+    ) -> ProbeResponse:
+        """D3: POST and assemble a streamed (SSE/NDJSON) response.
+
+        Streams the response, extracts the incremental text from each chunk via
+        ``stream_delta_path``, and concatenates until the done-sentinel or the
+        stream ends. Only reached when ``HttpConfig.stream`` is true, so the
+        non-stream path is byte-for-byte unchanged.
+        """
+        if self._client is None:  # pragma: no cover - guarded by caller
+            raise RuntimeError("HttpDriver.setup() must be called before send()")
+        body = None
+        if self._cfg.body_template is not None:
+            body = _inject_payload(
+                self._cfg.body_template, self._cfg.payload_placeholder, request.payload_text
+            )
+        try:
+            async with self._client.stream(self._cfg.method, url, json=body) as resp:
+                if resp.status_code == 429:
+                    latency = (time.perf_counter() - start) * 1000
+                    return ProbeResponse(
+                        text="", latency_ms=latency,
+                        error="HTTP 429 rate-limited by target",
+                    )
+                resp.raise_for_status()
+                text = await self._assemble_stream(resp)
+            latency = (time.perf_counter() - start) * 1000
+            return ProbeResponse(text=text, latency_ms=latency)
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            latency = (time.perf_counter() - start) * 1000
+            log.warning("http.stream_error", target=url, error=str(exc))
+            return ProbeResponse(text="", latency_ms=latency, error=str(exc))
+
+    async def _assemble_stream(self, resp: httpx.Response) -> str:
+        """Concatenate the delta text from each streamed line."""
+        parts: list[str] = []
+        total = 0
+        sse = self._cfg.stream_format == "sse"
+        async for raw in resp.aiter_lines():
+            line = raw.strip()
+            if not line:
+                continue
+            if sse:
+                if not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+            else:  # ndjson: one JSON object per line
+                data = line
+            if data == self._cfg.stream_done_sentinel:
+                break
+            try:
+                chunk = json.loads(data)
+            except ValueError:
+                continue  # keep-alive / comment / non-JSON line
+            try:
+                delta = _extract_path(chunk, self._cfg.stream_delta_path)
+            except (KeyError, IndexError, ValueError):
+                continue  # e.g. a role-only opening chunk with no content
+            parts.append(delta)
+            total += len(delta)
+            if total >= self._cfg.stream_max_chars:
+                break
+        return "".join(parts)
 
     async def teardown(self) -> None:
         if self._client is not None:

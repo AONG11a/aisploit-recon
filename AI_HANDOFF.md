@@ -8,7 +8,7 @@ short and current; append a dated entry each session.
 
 ## Snapshot
 
-- **Version:** 1.0.0 · **Branch:** `main` · **Last update:** 2026-07-15 (session 4)
+- **Version:** 1.0.0 · **Branch:** `main` · **Last update:** 2026-07-15 (session 5)
 - **Overall:** solid, well-documented v1. Clean architecture (transport /
   detection / reporting are swappable). Safety posture (fail-closed scope,
   dry-run default, no bundled bypass kit) is sound.
@@ -16,13 +16,20 @@ short and current; append a dated entry each session.
 - **Session 2:** implemented **D9, D8, D7** from `docs/DESIGN.md` (+ tests).
 - **Session 3 / 3b:** implemented **D1** (baseline-diff) and **D4**
   (repeat-and-confirm); fixed pre-existing mypy/ruff debt.
-- **Session 4 (this one):** finished the half-done **D2 (multi-turn probes)** WIP
-  and — for the first time — **ran the real suite to green**: 64 tests pass,
-  `ruff` clean, `mypy --strict` clean. The long-standing "couldn't run pytest"
-  caveat is now resolved. Changes are **staged in the working tree, not yet
-  committed** (the sandbox git mount is read-restricted — see notes below).
+- **Session 4:** finished the half-done **D2 (multi-turn probes)** WIP and — for
+  the first time — **ran the real suite to green** (`pytest`/`ruff`/`mypy --strict`).
+- **Session 5 (this one):** committed **D2** (`d25d389`); implemented **D3
+  streaming** (SSE/NDJSON assembly) — streaming targets are now scanned instead
+  of silently returning zero findings. 66 tests green, ruff + mypy --strict clean.
 
 ### Implemented so far (from docs/DESIGN.md)
+- **D3 — Streaming transport (SSE/NDJSON)** ✅ (session 5) `HttpConfig.stream`
+  (+ `stream_format`, `stream_delta_path`, `stream_done_sentinel`,
+  `stream_max_chars`). `HttpDriver.send` → `_send_streaming`/`_assemble_stream`
+  reads `text/event-stream` (or NDJSON), extracts each chunk's delta and
+  concatenates to the full message; non-stream path unchanged. Closes the
+  silent zero-findings-on-streaming-targets gap. Example
+  `examples/transport.sse.json`. 2 integration tests vs the mock `/chat/stream`.
 - **D2 — Multi-turn / conversational probes** ✅ (session 4) `Payload` now takes
   either `template` (single-shot) or `turns: list[str]` (multi-turn); a
   model-validator enforces exactly-one and ≥2 turns. `requires_canary`/`body_text`
@@ -174,6 +181,11 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 ---
 
 ## Change log
+
+- **2026-07-15 (session 5)** — Post-D2 roadmap. **Committed D2** (`d25d389`).
+  Implemented **D3 streaming**: `HttpDriver` now assembles SSE/NDJSON deltas so
+  streaming chat APIs are scanned instead of silently yielding zero findings
+  (biggest false-negative risk). 66 tests (was 64), ruff + mypy --strict clean.
 
 - **2026-07-15 (session 4)** — Finished the uncommitted **D2 (multi-turn)** WIP.
   Closed the gaps that blocked it: (a) `PlaywrightDriver` didn't implement

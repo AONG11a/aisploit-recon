@@ -187,6 +187,13 @@ by the override and updated test scopes. Flag off = current behaviour.
 
 ## D3 — Streaming transport (SSE / NDJSON)  (P1, reach)
 
+**Status: ✅ DONE (session 5).** `HttpConfig` gained `stream`/`stream_format`
+(`sse`|`ndjson`)/`stream_delta_path`/`stream_done_sentinel`/`stream_max_chars`;
+`HttpDriver.send` branches to `_send_streaming` which assembles deltas via
+`aiter_lines`. Example `examples/transport.sse.json`. Acceptance met: the mock
+`/chat/stream` route is assembled and `PI-001` fires (vulnerable) / stays quiet
+(secure) — `tests/integration/test_scanner_vs_mock.py`.
+
 **Problem.** `HttpDriver.send` (`transport/http_driver.py`) calls `resp.json()`.
 Against a `text/event-stream` chat API it raises → caught → `ProbeResponse.error`
 → probe dropped. Net effect: **a streaming target silently yields zero

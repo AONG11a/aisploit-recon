@@ -369,3 +369,85 @@ async def test_single_shot_unchanged_after_d2() -> None:
         result = await _campaign(target).run(pi_payloads)
     verdicts = {f.payload.id: f.result.verdict for f in result.findings}
     assert verdicts.get("PI-001") is Verdict.VULNERABLE
+
+
+# --- D3: streaming (SSE) transport -------------------------------------------
+
+
+class _StreamServerCtx:
+    """Server context targeting the mock's SSE ``/chat/stream`` route (D3)."""
+
+    def __init__(self, vulnerable: bool) -> None:
+        self.vulnerable = vulnerable
+        self.port = _free_port()
+        self._httpd: WSGIServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> str:
+        os.environ["AISPLOIT_MOCK_VULNERABLE"] = "1" if self.vulnerable else "0"
+        app = _load_mock_app()
+        self._httpd = make_server("127.0.0.1", self.port, app)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        return f"http://127.0.0.1:{self.port}/chat/stream"
+
+    def __exit__(self, *exc: object) -> None:
+        if self._httpd:
+            self._httpd.shutdown()
+
+
+def _streaming_campaign(target: str) -> Campaign:
+    """Campaign whose HTTP driver assembles a streamed (SSE) response."""
+    scope = ScopeConfig(
+        proof=AuthorizationProof(
+            program="internal:test",
+            scope_reference="local",
+            authorized_by="ci",
+            authorized_at=datetime.now(UTC),
+        ),
+        rules=ScopeRule(
+            allowed_hosts=["127.0.0.1"],
+            max_requests_per_minute=600,
+            allow_private_destinations=True,
+        ),
+    )
+    driver = HttpDriver(
+        HttpConfig(
+            body_template={"message": "{payload}"},
+            response_path="response",
+            stream=True,
+            stream_format="sse",
+            stream_delta_path="choices.0.delta.content",
+        )
+    )
+    return Campaign(
+        target_url=target,
+        transport=driver,
+        pipeline=DetectionPipeline(llm_judge=None),
+        scope_guard=ScopeGuard(scope),
+        rate_limiter=RateLimiter(600),
+        max_concurrent=4,
+    )
+
+
+@pytest.mark.asyncio
+async def test_streaming_vulnerable_assembles_and_fires() -> None:
+    """D3 acceptance: a streaming (SSE) target is assembled from deltas and the
+    canary payload fires exactly as on the non-stream route."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _StreamServerCtx(vulnerable=True) as target:
+        result = await _streaming_campaign(target).run(pi_payloads)
+    verdicts = {f.payload.id: f.result.verdict for f in result.findings}
+    assert verdicts.get("PI-001") is Verdict.VULNERABLE
+
+
+@pytest.mark.asyncio
+async def test_streaming_secure_mode_quiet() -> None:
+    """D3: the same streaming payload must NOT fire against the secure mock."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _StreamServerCtx(vulnerable=False) as target:
+        result = await _streaming_campaign(target).run(pi_payloads)
+    vulns = [f for f in result.findings if f.result.verdict is Verdict.VULNERABLE]
+    assert not vulns
