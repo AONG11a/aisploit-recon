@@ -34,6 +34,8 @@ jobs:
         run: ruff check src tests
 
       - name: Mypy (strict)
+        env:
+          MYPYPATH: src
         run: mypy src
 
       - name: Pytest
