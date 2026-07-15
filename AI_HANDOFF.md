@@ -104,11 +104,11 @@ Two environment gotchas worth knowing (neither is a code bug):
 - ✅ `ScopeRule.allow_private_destinations` field added (D9 now enforces it).
 
 **Should-fix (still open)**
-1. **Mutators are dead code.** `payloads/mutators.py` is implemented + property-
-   tested but never used in a scan: no `mutators` field on `Payload` and
-   `scheduler._probe_one` never calls `apply_mutators`. Wire in (add schema
-   field, apply after canary substitution — guard against mutating a `{canary}`
-   token) or mark explicitly experimental.
+1. ✅ **DONE (session 5).** ~~Mutators are dead code.~~ Wired: `Payload.mutators`
+   field + a validator that rejects mutator+`{canary}` conflicts; `apply_mutators`
+   runs in `Campaign.plan()`, `_probe_one`, and `_confirm`. Tests prove application
+   in the planner and on the wire (`test_mutators_*`). Documented in
+   `docs/PAYLOAD_AUTHORING.md`. (No weaponised mutated payload is shipped — by design.)
 2. **Expired-auth CLI crash is ugly.** `cli.py:98` constructs `ScopeGuard(...)`
    *before* the `try/except` (starts ~`cli.py:120`); expired auth → raw
    traceback + exit 1 instead of "SCOPE VIOLATION" + exit 2. Move into the try.
@@ -189,6 +189,11 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 ---
 
 ## Change log
+
+- **2026-07-15 (session 5, cont.)** — Confirmed + tested **mutator wiring**
+  (backlog #1, already wired in the D2 refactor): added planner + on-the-wire
+  tests and `PAYLOAD_AUTHORING.md` docs. No weaponised payloads shipped. 74 tests
+  green (ex-60s rate-limiter), ruff + mypy --strict clean.
 
 - **2026-07-15 (session 5, cont.)** — Implemented **D5 core** (repro manifest):
   drivers capture a redacted request manifest (auth masked at source); reports

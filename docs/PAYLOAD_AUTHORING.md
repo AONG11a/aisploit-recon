@@ -64,3 +64,29 @@ Extend the mock (`tests/fixtures/mock_ai_app/app.py`) with a matching
 vulnerable/secure behaviour so you have ground truth, then assert in an
 integration test that the payload fires in vulnerable mode and stays quiet in
 secure mode. That's how precision is proven rather than assumed.
+
+## Mutators (obfuscation transforms)
+
+A payload may carry a `mutators` list that transforms the **entire rendered
+text just before it is sent** — for testing whether a target is fooled by
+obfuscation. They are applied in `Campaign.plan()` (so `--dry-run` shows the
+exact bytes) and on every send/confirm.
+
+```yaml
+- id: JB-OBF-001
+  category: jailbreak
+  name: Base64-obfuscated instruction
+  template: <your vetted instruction>
+  detection: signature
+  success_indicators: ["<expected leak/marker in the reply>"]
+  mutators: [base64]        # applied left-to-right
+```
+
+Rules:
+
+- Available: `identity`, `base64`, `rot13`, `leetspeak`, `homoglyph`,
+  `zero_width`.
+- **Mutators and `{canary}` are mutually exclusive** — a mutator would corrupt
+  the canary token the detector looks for, so the loader rejects payloads that
+  use both. Prefer `signature`/`refusal` detection with mutated payloads.
+- Use `--dry-run` to review the mutated bytes before sending anything.
