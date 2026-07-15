@@ -69,3 +69,6 @@ ignore = ["S603", "S607", "UP042"]
 "tests/**" = ["S101", "S106"]
 # B008: passing typer.Option(...) in defaults is the required Typer idiom.
 "src/aisploit_recon/cli.py" = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aisploit_recon"]
