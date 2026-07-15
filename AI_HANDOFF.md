@@ -8,7 +8,7 @@ short and current; append a dated entry each session.
 
 ## Snapshot
 
-- **Version:** 1.0.0 · **Branch:** `main` · **Last update:** 2026-07-15 (session 5)
+- **Version:** 1.0.0 · **Branch:** `main` · **Last update:** 2026-07-15 (session 6)
 - **Overall:** solid, well-documented v1. Clean architecture (transport /
   detection / reporting are swappable). Safety posture (fail-closed scope,
   dry-run default, no bundled bypass kit) is sound.
@@ -18,13 +18,34 @@ short and current; append a dated entry each session.
   (repeat-and-confirm); fixed pre-existing mypy/ruff debt.
 - **Session 4:** finished the half-done **D2 (multi-turn probes)** WIP and — for
   the first time — **ran the real suite to green** (`pytest`/`ruff`/`mypy --strict`).
-- **Session 5 (this one):** committed **D2** (`d25d389`); shipped **D3 streaming**
+- **Session 5:** committed **D2** (`d25d389`); shipped **D3 streaming**
   (`e512fe0`), **D5 repro/manifest** (`cd04290`), **mutator wiring + tests**
   (`79162f1`), and **CI** (GitHub Actions: ruff + mypy --strict + pytest on
   3.11/3.12) with the 60s rate-limiter test rewritten. **75 tests green in ~7s**,
   ruff + mypy --strict clean.
+- **Session 6 (this one):** shipped **D6 auth capture** (P1 reach) and **D5b
+  platform export / run-diff / CI-gate** (P2 adoption) — the last two remaining
+  DESIGN items. New CLI commands: `login`, `export`, `diff`, `scan --fail-on`.
+  New modules: `core/auth.py`, `reporting/export.py`. EvidenceStore gained
+  `fetch_finding` / `fetch_run` query helpers. **97 tests green in ~12s**, ruff +
+  mypy --strict clean. This completes the entire DESIGN.md roadmap.
 
 ### Implemented so far (from docs/DESIGN.md)
+- **D6 — Interactive auth capture (`aisploit login`)** ✅ (session 6)
+  `core/auth.py`: `AuthCapture` launches Playwright non-headless, navigates to
+  the target, captures `storage_state` (cookies + localStorage). `save_auth_state`
+  persists to file (chmod 600) or OS keyring (`--keyring`); `load_auth_state`
+  reads back. CLI: `aisploit login --target <url> --out auth/state.json
+  [--keyring <name>]`. Interactive only (documented; not for headless CI). Tests:
+  8 unit (`test_auth_capture.py`) — file save/load, permissions, keyring
+  fallback, error paths.
+- **D5b — Platform export / run-diff / CI-gate** ✅ (session 6)
+  `reporting/export.py`: `export_finding` renders HackerOne, huntr, or Markdown
+  from a stored finding; `diff_runs` compares two runs (new/resolved/unchanged);
+  `ci_gate` evaluates a run against a severity threshold. CLI commands: `export`,
+  `diff`, `scan --fail-on <level>`. EvidenceStore gained `fetch_finding` /
+  `fetch_run` query helpers. Tests: 14 unit (`test_export_diff.py`) — all three
+  format outputs, diff new/resolved/unchanged, CI-gate pass/fail/critical-only.
 - **D5 — Reproduction manifest + repro** ✅ (session 5, core) `ProbeResponse.request_manifest`
   captured by HTTP + Playwright drivers with auth **masked at capture**; flows
   `resp → Finding → report`. Report gains a `repro` (`curl` for HTTP, step-list
@@ -160,18 +181,17 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 
 ## Next actions (top of stack)
 
-D2/D3/D5-core/mutators/CI are done & committed (see change log). Remaining:
+**The entire DESIGN.md roadmap is now complete** (D1–D9 + D5b). Remaining
+items are bug-backlog and productionisation:
 
-1. **D6 — Auth capture** (P1 reach): capture/refresh a logged-in session for the
-   HTTP + Playwright transports so authenticated targets can be scanned.
-2. **D5b — Platform export / run-diff / CI-gate** (P2 adoption): `aisploit export
-   --format hackerone|huntr`, `aisploit diff runA runB`, `--fail-on high`.
-3. **Backlog #2** (CLI expired-auth → clean SCOPE VIOLATION, not a traceback) and
+1. **Backlog #2** (CLI expired-auth → clean SCOPE VIOLATION, not a traceback) and
    **#3** (verify `judge_model` default is a valid model string).
-4. **Backlog #7** (Playwright driver: catch non-timeout errors gracefully) and
+2. **Backlog #7** (Playwright driver: catch non-timeout errors gracefully) and
    **#8** (delete duplicate root docs) and **#10** (make `playwright` a lazy
    `[browser]` import so HTTP-only users can run `--help` without it).
-5. MT-002 (persona→signature) still lacks a dedicated integration test.
+3. MT-002 (persona→signature) still lacks a dedicated integration test.
+4. **Implementation plan** items not in DESIGN.md: supply-chain (E2: lockfile,
+   pip-audit, Dependabot, SBOM), PyPI publish (E5), resumable campaigns (F3).
 
 ---
 
@@ -193,6 +213,15 @@ D2/D3/D5-core/mutators/CI are done & committed (see change log). Remaining:
 ---
 
 ## Change log
+
+- **2026-07-15 (session 6)** — Shipped **D6 auth capture** + **D5b export/diff/
+  CI-gate**, completing the entire DESIGN.md roadmap. D6: `core/auth.py`
+  (`AuthCapture` + `save/load_auth_state`) + `aisploit login` CLI — interactive
+  Playwright session capture, file (chmod 600) or keyring storage. D5b:
+  `reporting/export.py` (`export_finding` → hackerone/huntr/markdown,
+  `diff_runs`, `ci_gate`) + `export`/`diff` CLI commands + `scan --fail-on`
+  CI-gate flag. EvidenceStore gained `fetch_finding`/`fetch_run`. 22 new tests
+  (8 auth + 14 export/diff). **97 tests green in ~12s**, ruff + mypy --strict clean.
 
 - **2026-07-15 (session 5, cont.)** — Stood up **CI** (`.github/workflows/ci.yml`:
   ruff + mypy --strict + pytest, matrix py3.11/3.12) and rewrote the 60s

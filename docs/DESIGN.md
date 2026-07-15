@@ -151,6 +151,13 @@ auth header never appears in the manifest or repro.
 secrets. Reuse `utils/crypto.redact` on the manifest before persisting.
 
 ### D5b — Platform export, run-diff, CI-gate  (P2, adoption)
+
+**Status: ✅ DONE (session 6).** `reporting/export.py` + three CLI commands.
+`export_finding` → hackerone/huntr/markdown from a stored finding; `diff_runs`
+→ new/resolved/unchanged between two runs; `ci_gate` → pass/fail vs severity
+threshold. CLI: `aisploit export`, `aisploit diff`, `aisploit scan --fail-on
+<level>`. EvidenceStore gained `fetch_finding` / `fetch_run`. 14 unit tests
+(`test_export_diff.py`).
 - `aisploit export --finding <id> --format hackerone|huntr|markdown` reads the
   store and fills a per-platform template (maps to `IMPLEMENTATION_PLAN` D1).
 - `aisploit diff <runA> <runB>` lists new/resolved findings by `payload_id +
@@ -226,6 +233,15 @@ cap. Non-stream path unchanged when `stream=false`.
 ---
 
 ## D6 — Interactive auth capture (`aisploit login`)  (P1, reach)
+
+**Status: ✅ DONE (session 6).** `core/auth.py`: `AuthCapture` launches
+Playwright non-headless, navigates to the target, captures `storage_state`.
+`save_auth_state` persists to file (chmod 600) or OS keyring (`--keyring`);
+`load_auth_state` reads back. CLI: `aisploit login --target <url> --out
+auth/state.json [--keyring <name>]`. Interactive only (documented; not for
+headless CI — inject tokens via transport config there). 8 unit tests
+(`test_auth_capture.py`): file save/load, chmod 600 permissions, keyring
+fallback, error paths.
 
 **Problem.** Playwright/HTTP auth requires a hand-crafted `storage_state` /
 `auth_headers`. High friction; discourages real use. (Ties to F-2 keyring.)
