@@ -18,3 +18,7 @@ build/
 
 AI_HANDOFF.md
 docs/AI_TASK_PROMPT.md
+
+docs/DESIGN.md
+docs/IMPLEMENTATION_PLAN.md
+docs/SECURITY_REVIEW.md
