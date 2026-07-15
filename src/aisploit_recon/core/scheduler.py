@@ -243,6 +243,7 @@ class Campaign:
                     latency_ms=resp.latency_ms,
                     screenshot_path=resp.screenshot_path,
                     evidence_digest=content_digest(resp.text),
+                    request_manifest=resp.request_manifest,
                 )
             return None
 

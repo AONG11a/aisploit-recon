@@ -14,8 +14,10 @@ high-confidence secrets the target may have leaked back to us.
 from __future__ import annotations
 
 import json
+import shlex
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -25,6 +27,45 @@ from aisploit_recon.reporting.severity import Severity, score_finding
 from aisploit_recon.utils.crypto import redact
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+
+def _curl_repro(manifest: dict[str, Any]) -> str:
+    """Render a copy-paste ``curl`` for an HTTP manifest. Auth headers are
+    already masked to ``<REDACTED>`` at capture time — the triager substitutes a
+    real token. ``--no-buffer`` is added for streaming endpoints."""
+    method = str(manifest.get("method", "POST"))
+    url = str(manifest.get("url", ""))
+    parts = ["curl", "-sS", "-X", method, shlex.quote(url)]
+    headers = manifest.get("headers") or {}
+    if isinstance(headers, dict):
+        if not any(k.lower() == "content-type" for k in headers):
+            parts += ["-H", shlex.quote("Content-Type: application/json")]
+        for k, v in headers.items():
+            parts += ["-H", shlex.quote(f"{k}: {v}")]
+    body = manifest.get("body")
+    if body is not None:
+        parts += ["--data", shlex.quote(json.dumps(body, ensure_ascii=False))]
+    if manifest.get("stream"):
+        parts.append("--no-buffer")
+    return " ".join(parts)
+
+
+def _repro(manifest: dict[str, object] | None) -> str | None:
+    """A reproduction recipe from a request manifest (curl for HTTP, a step
+    list for Playwright)."""
+    if not manifest:
+        return None
+    transport = manifest.get("transport")
+    if transport == "http":
+        return _curl_repro(manifest)
+    if transport == "playwright":
+        return (
+            f"Playwright: open {manifest.get('url')} → "
+            f"fill {manifest.get('input_selector')!r} with the payload → "
+            f"click {manifest.get('submit_selector')!r} → "
+            f"read {manifest.get('response_selector')!r}"
+        )
+    return None
 
 
 def _finding_dict(finding: Finding, redact_secrets: bool) -> dict[str, object]:
@@ -50,6 +91,8 @@ def _finding_dict(finding: Finding, redact_secrets: bool) -> dict[str, object]:
         "screenshot": finding.screenshot_path,
         "references": finding.payload.references,
         "latency_ms": round(finding.latency_ms, 1),
+        "repro": _repro(finding.request_manifest),
+        "request": finding.request_manifest,
     }
 
 

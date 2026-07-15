@@ -117,6 +117,12 @@ rate limiter. Default `1` = today's behaviour.
 
 ## D5 — Reproduction artifact + request manifest  (P0→P1, workflow)
 
+**Status: ✅ DONE (session 5)** — core manifest + repro. `ProbeResponse.request_manifest`
+is populated (auth masked at capture) by both drivers; flows to `Finding`; the
+report renders a `curl` (HTTP) or step-list (Playwright) `repro`; evidence DB
+gained a `request_json` column (guarded migration). `severity`/`severity_score`
+were already persisted (backlog #9). **D5b** (export/diff/CI-gate) remains P2.
+
 **Problem.** A finding today carries evidence text and a response digest but not
 the *exact request*. Triagers want a one-command repro. `EvidenceStore`
 (`evidence/store.py`) has no request columns, so nothing can reconstruct the

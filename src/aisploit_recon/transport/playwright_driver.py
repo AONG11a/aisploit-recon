@@ -84,6 +84,14 @@ class PlaywrightDriver:
         page = await self._context.new_page()
         start = time.perf_counter()
         pid = request.metadata.get("payload_id", "probe")
+        manifest: dict[str, object] = {
+            "transport": "playwright",
+            "url": request.target_url,
+            "input_selector": self._cfg.input_selector,
+            "submit_selector": self._cfg.submit_selector,
+            "response_selector": self._cfg.response_selector,
+            "payload_text": request.payload_text,
+        }
         try:
             await page.goto(request.target_url, wait_until="networkidle")
             await page.fill(self._cfg.input_selector, request.payload_text)
@@ -104,12 +112,14 @@ class PlaywrightDriver:
                 latency_ms=latency,
                 screenshot_path=str(shot),
                 har_path=str(self._cfg.evidence_dir / "session.har"),
+                request_manifest=manifest,
             )
         except PwTimeout:
             latency = (time.perf_counter() - start) * 1000
             return ProbeResponse(
                 text="", latency_ms=latency,
                 error="Response timeout — target may be rate-limiting or hung",
+                request_manifest=manifest,
             )
         except Exception as exc:
             latency = (time.perf_counter() - start) * 1000
@@ -120,6 +130,7 @@ class PlaywrightDriver:
             )
             return ProbeResponse(
                 text="", latency_ms=latency, error=f"{type(exc).__name__}: {exc}",
+                request_manifest=manifest,
             )
         finally:
             await page.close()

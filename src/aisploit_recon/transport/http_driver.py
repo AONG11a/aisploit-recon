@@ -21,6 +21,7 @@ from aisploit_recon.transport.base import (
     ProbeResponse,
     send_turns_sequentially,
 )
+from aisploit_recon.utils.crypto import redact
 from aisploit_recon.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -94,6 +95,20 @@ def _replace_turns_sentinel(obj: Any, sentinel: str, turns: list[str]) -> Any:
     return obj
 
 
+_SENSITIVE_HEADERS = frozenset({
+    "authorization", "cookie", "set-cookie", "x-api-key", "api-key",
+    "x-auth-token", "authentication", "proxy-authorization",
+})
+
+
+def _mask_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Mask auth-bearing header values so they never enter a manifest/report."""
+    masked: dict[str, str] = {}
+    for k, v in headers.items():
+        masked[k] = "<REDACTED>" if k.lower() in _SENSITIVE_HEADERS else redact(v)
+    return masked
+
+
 class HttpDriver:
     def __init__(self, config: HttpConfig, storage_headers: dict[str, str] | None = None):
         self._cfg = config
@@ -106,6 +121,23 @@ class HttpDriver:
         headers = {**(self._cfg.headers or {}), **self._auth_headers}
         self._client = httpx.AsyncClient(timeout=self._cfg.timeout_s, headers=headers)
 
+    def _request_manifest(self, url: str, body: Any) -> dict[str, Any]:
+        """A redacted description of the outgoing request, for reproduction.
+
+        Auth-bearing header values are masked here so a secret can never enter
+        the manifest or any report built from it (D5 redaction requirement).
+        """
+        headers = {**(self._cfg.headers or {}), **self._auth_headers}
+        return {
+            "transport": "http",
+            "method": self._cfg.method,
+            "url": url,
+            "headers": _mask_headers(headers),
+            "body": body,
+            "response_path": self._cfg.response_path,
+            "stream": self._cfg.stream,
+        }
+
     async def send(self, request: ProbeRequest) -> ProbeResponse:
         if self._client is None:
             raise RuntimeError("HttpDriver.setup() must be called before send()")
@@ -117,6 +149,7 @@ class HttpDriver:
             body = _inject_payload(
                 self._cfg.body_template, self._cfg.payload_placeholder, request.payload_text
             )
+        manifest = self._request_manifest(request.target_url, body)
         try:
             resp = await self._client.request(
                 self._cfg.method, request.target_url, json=body
@@ -126,14 +159,17 @@ class HttpDriver:
                 return ProbeResponse(
                     text="", latency_ms=latency,
                     error="HTTP 429 rate-limited by target",
+                    request_manifest=manifest,
                 )
             resp.raise_for_status()
             text = _extract_path(resp.json(), self._cfg.response_path)
-            return ProbeResponse(text=text, latency_ms=latency)
+            return ProbeResponse(text=text, latency_ms=latency, request_manifest=manifest)
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             latency = (time.perf_counter() - start) * 1000
             log.warning("http.probe_error", target=request.target_url, error=str(exc))
-            return ProbeResponse(text="", latency_ms=latency, error=str(exc))
+            return ProbeResponse(
+                text="", latency_ms=latency, error=str(exc), request_manifest=manifest
+            )
 
     async def _send_streaming(
         self, url: str, request: ProbeRequest, start: float
@@ -152,6 +188,7 @@ class HttpDriver:
             body = _inject_payload(
                 self._cfg.body_template, self._cfg.payload_placeholder, request.payload_text
             )
+        manifest = self._request_manifest(url, body)
         try:
             async with self._client.stream(self._cfg.method, url, json=body) as resp:
                 if resp.status_code == 429:
@@ -159,15 +196,18 @@ class HttpDriver:
                     return ProbeResponse(
                         text="", latency_ms=latency,
                         error="HTTP 429 rate-limited by target",
+                        request_manifest=manifest,
                     )
                 resp.raise_for_status()
                 text = await self._assemble_stream(resp)
             latency = (time.perf_counter() - start) * 1000
-            return ProbeResponse(text=text, latency_ms=latency)
+            return ProbeResponse(text=text, latency_ms=latency, request_manifest=manifest)
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             latency = (time.perf_counter() - start) * 1000
             log.warning("http.stream_error", target=url, error=str(exc))
-            return ProbeResponse(text="", latency_ms=latency, error=str(exc))
+            return ProbeResponse(
+                text="", latency_ms=latency, error=str(exc), request_manifest=manifest
+            )
 
     async def _assemble_stream(self, resp: httpx.Response) -> str:
         """Concatenate the delta text from each streamed line."""

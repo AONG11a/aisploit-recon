@@ -43,6 +43,13 @@
 {{ f.evidence }}
 ```
 
+{% if f.repro %}**Reproduce:**
+
+```sh
+{{ f.repro }}
+```
+{% endif %}
+
 {% if f.references %}**References:** {{ f.references | join(", ") }}{% endif %}
 {% if f.screenshot %}**Screenshot:** `{{ f.screenshot }}`{% endif %}
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -43,6 +43,11 @@ class ProbeResponse:
     screenshot_path: str | None = None
     har_path: str | None = None
     error: str | None = None
+    # D5: a redacted description of the request that produced this response
+    # (method, url, body, response_path, auth-masked headers), so a finding can
+    # render a one-command reproduction. Auth values are masked at capture time
+    # so secrets never enter the manifest.
+    request_manifest: dict[str, Any] | None = None
 
     @property
     def ok(self) -> bool:

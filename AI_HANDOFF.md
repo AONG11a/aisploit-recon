@@ -23,6 +23,13 @@ short and current; append a dated entry each session.
   of silently returning zero findings. 66 tests green, ruff + mypy --strict clean.
 
 ### Implemented so far (from docs/DESIGN.md)
+- **D5 — Reproduction manifest + repro** ✅ (session 5, core) `ProbeResponse.request_manifest`
+  captured by HTTP + Playwright drivers with auth **masked at capture**; flows
+  `resp → Finding → report`. Report gains a `repro` (`curl` for HTTP, step-list
+  for Playwright); evidence DB gains a `request_json` column (guarded
+  `ALTER TABLE`). `severity`/`severity_score` were already persisted (backlog #9
+  is DONE). Tests: 6 unit (`test_repro_manifest.py`) + 1 integration proving the
+  auth token never reaches the manifest or report. D5b (export/diff/CI-gate) = P2, TODO.
 - **D3 — Streaming transport (SSE/NDJSON)** ✅ (session 5) `HttpConfig.stream`
   (+ `stream_format`, `stream_delta_path`, `stream_done_sentinel`,
   `stream_max_chars`). `HttpDriver.send` → `_send_streaming`/`_assemble_stream`
@@ -123,7 +130,8 @@ Two environment gotchas worth knowing (neither is a code bug):
 8. **Duplicate docs.** `ARCHITECTURE.md` / `IMPLEMENTATION_PLAN.md` /
    `SECURITY_REVIEW.md` exist identically at repo root *and* `docs/`. Delete the
    root copies.
-9. **Evidence DB omits severity/score** (`evidence/store.py`) — recomputed at
+9. ✅ **DONE.** ~~Evidence DB omits severity/score~~ — now persisted, plus a
+   `request_json` manifest column (D5). Originally: recomputed at
    report time; blocks severity-based purge/diff. (Covered by DESIGN D5.)
 10. **`playwright` is a hard core dep + imported at CLI top** (`cli.py`); HTTP-only
     users must install the browser stack to run `--help`. `[browser]` extra +
@@ -181,6 +189,11 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 ---
 
 ## Change log
+
+- **2026-07-15 (session 5, cont.)** — Implemented **D5 core** (repro manifest):
+  drivers capture a redacted request manifest (auth masked at source); reports
+  render a `curl`/step-list repro; evidence DB persists `request_json`. Redaction
+  proven by test (token never leaks). 73 tests green, ruff + mypy --strict clean.
 
 - **2026-07-15 (session 5)** — Post-D2 roadmap. **Committed D2** (`d25d389`).
   Implemented **D3 streaming**: `HttpDriver` now assembles SSE/NDJSON deltas so

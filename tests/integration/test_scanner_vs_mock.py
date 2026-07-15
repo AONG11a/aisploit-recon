@@ -451,3 +451,60 @@ async def test_streaming_secure_mode_quiet() -> None:
         result = await _streaming_campaign(target).run(pi_payloads)
     vulns = [f for f in result.findings if f.result.verdict is Verdict.VULNERABLE]
     assert not vulns
+
+
+# --- D5: request manifest + repro + redaction --------------------------------
+
+
+def _campaign_with_auth(target: str, token: str) -> Campaign:
+    scope = ScopeConfig(
+        proof=AuthorizationProof(
+            program="internal:test", scope_reference="local",
+            authorized_by="ci", authorized_at=datetime.now(UTC),
+        ),
+        rules=ScopeRule(
+            allowed_hosts=["127.0.0.1"], max_requests_per_minute=600,
+            allow_private_destinations=True,
+        ),
+    )
+    driver = HttpDriver(
+        HttpConfig(body_template={"message": "{payload}"}, response_path="response"),
+        storage_headers={"Authorization": token},
+    )
+    return Campaign(
+        target_url=target, transport=driver,
+        pipeline=DetectionPipeline(llm_judge=None), scope_guard=ScopeGuard(scope),
+        rate_limiter=RateLimiter(600), max_concurrent=4,
+    )
+
+
+@pytest.mark.asyncio
+async def test_finding_carries_repro_manifest_without_leaking_auth() -> None:
+    """D5 acceptance + redaction: a finding captures a reproduction manifest and
+    the rendered report shows a curl repro, but the auth token never appears."""
+    from aisploit_recon.reporting.generator import ReportGenerator
+
+    token = "Bearer sk-REALSECRETdontleak0987654321"  # noqa: S105 (test fixture)
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _ServerCtx(vulnerable=True) as target:
+        campaign = _campaign_with_auth(target, token)
+        result = await campaign.run(pi_payloads)
+
+    finding = next(f for f in result.findings if f.payload.id == "PI-001")
+    assert finding.request_manifest is not None
+    assert finding.request_manifest["headers"]["Authorization"] == "<REDACTED>"
+
+    scope = ScopeConfig(
+        proof=AuthorizationProof(
+            program="internal:test", scope_reference="local",
+            authorized_by="ci", authorized_at=datetime.now(UTC),
+        ),
+        rules=ScopeRule(allowed_hosts=["127.0.0.1"], allow_private_destinations=True),
+    )
+    gen = ReportGenerator(scope, redact_secrets=True)
+    md = gen.to_markdown(result, "run-x")
+    js = gen.to_json(result, "run-x")
+    assert "Reproduce" in md and "curl" in md
+    assert "REALSECRET" not in md
+    assert "REALSECRET" not in js

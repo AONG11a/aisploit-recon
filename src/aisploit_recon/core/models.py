@@ -17,6 +17,7 @@ class Finding:
     latency_ms: float = 0.0
     screenshot_path: str | None = None
     evidence_digest: str | None = None  # SHA-256 of the raw response
+    request_manifest: dict[str, object] | None = None  # D5: redacted repro manifest
 
 
 @dataclass

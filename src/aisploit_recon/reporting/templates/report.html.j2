@@ -95,6 +95,7 @@
     <div class="kv">Response digest: <code>{{ f.evidence_digest }}</code> · {{ f.latency_ms }} ms</div>
     <p>{{ f.reasoning }}</p>
     <pre>{{ f.evidence }}</pre>
+    {% if f.repro %}<div class="kv">Reproduce:</div><pre>{{ f.repro }}</pre>{% endif %}
     {% if f.references %}<div class="kv">References: {{ f.references | join(", ") }}</div>{% endif %}
     {% if f.screenshot %}<div class="kv">Screenshot: <code>{{ f.screenshot }}</code></div>{% endif %}
   </div>
