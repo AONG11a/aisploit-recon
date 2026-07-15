@@ -239,6 +239,18 @@ there).
 
 ## D2 — Multi-turn / conversational probes  (P1, biggest capability gap)
 
+**Status: ✅ DONE (session 4).** Implemented as specified below, with one
+refinement: instead of a `ConversationMixin`, the sequential fallback is a
+shared helper `transport.base.send_turns_sequentially(send, req)` used by both
+the HTTP and Playwright drivers (no monkey-patching; passes mypy strict). The
+`HttpDriver` also supports a *native* multi-turn endpoint via
+`HttpConfig.conversation_endpoint` (+ `{turns}` body placeholder). Payloads:
+`payloads/library/multi_turn.yaml` (MT-001 canary, MT-002 persona/signature).
+Acceptance met by `tests/integration/test_scanner_vs_mock.py` (multi-turn fires
+in vulnerable mode, quiet in secure mode, sequential fallback works, single-shot
+unchanged) + `tests/unit/test_multi_turn.py` (schema). Full suite green
+(64 tests), ruff + mypy --strict clean.
+
 **Problem.** The `Payload` schema (`payloads/models.py`) is single-shot: one
 `template`, one request, one response. Real injections often need setup turns
 (establish a persona/context, then exploit). No amount of single-shot payloads

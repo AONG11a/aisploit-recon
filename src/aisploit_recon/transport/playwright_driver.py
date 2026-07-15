@@ -18,7 +18,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from aisploit_recon.transport.base import ProbeRequest, ProbeResponse
+from aisploit_recon.transport.base import (
+    ConversationRequest,
+    ProbeRequest,
+    ProbeResponse,
+    send_turns_sequentially,
+)
 from aisploit_recon.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -118,6 +123,20 @@ class PlaywrightDriver:
             )
         finally:
             await page.close()
+
+    async def send_conversation(self, request: ConversationRequest) -> ProbeResponse:
+        """D2: multi-turn over the real UI.
+
+        The browser transport has no native multi-turn endpoint, so each turn
+        is typed and submitted as its own single-shot ``send`` (a fresh page per
+        turn); detection runs on the final turn's response. Evidence artifacts
+        (screenshot/HAR) are captured per turn as usual.
+        """
+        if self._context is None:
+            raise RuntimeError(
+                "PlaywrightDriver.setup() must be called before send_conversation()"
+            )
+        return await send_turns_sequentially(self.send, request)
 
     async def _wait_for_stable_response(self, page: Page) -> None:
         last = ""

@@ -8,16 +8,32 @@ short and current; append a dated entry each session.
 
 ## Snapshot
 
-- **Version:** 1.0.0 · **Branch:** `main` · **Last update:** 2026-07-14 (session 2)
+- **Version:** 1.0.0 · **Branch:** `main` · **Last update:** 2026-07-15 (session 4)
 - **Overall:** solid, well-documented v1. Clean architecture (transport /
   detection / reporting are swappable). Safety posture (fail-closed scope,
   dry-run default, no bundled bypass kit) is sound.
 - **Session 1:** full code review + claim verification + `docs/DESIGN.md` + this file.
 - **Session 2:** implemented **D9, D8, D7** from `docs/DESIGN.md` (+ tests).
-  Verified by standalone logic scripts (see caveat); full `pytest` still to be
-  run locally.
+- **Session 3 / 3b:** implemented **D1** (baseline-diff) and **D4**
+  (repeat-and-confirm); fixed pre-existing mypy/ruff debt.
+- **Session 4 (this one):** finished the half-done **D2 (multi-turn probes)** WIP
+  and — for the first time — **ran the real suite to green**: 64 tests pass,
+  `ruff` clean, `mypy --strict` clean. The long-standing "couldn't run pytest"
+  caveat is now resolved. Changes are **staged in the working tree, not yet
+  committed** (the sandbox git mount is read-restricted — see notes below).
 
 ### Implemented so far (from docs/DESIGN.md)
+- **D2 — Multi-turn / conversational probes** ✅ (session 4) `Payload` now takes
+  either `template` (single-shot) or `turns: list[str]` (multi-turn); a
+  model-validator enforces exactly-one and ≥2 turns. `requires_canary`/`body_text`
+  span both shapes. New `ConversationRequest` + `Transport.send_conversation`;
+  shared fallback `send_turns_sequentially` replays turns via single-shot `send`
+  (used by both HTTP + Playwright drivers). `HttpDriver` also does *native*
+  multi-turn via `HttpConfig.conversation_endpoint` + `{turns}` placeholder.
+  `Campaign` branches to multi-turn in plan/probe/confirm. Library:
+  `multi_turn.yaml` (MT-001 canary, MT-002 persona→signature). Tests: 11 unit
+  (`test_multi_turn.py`) + 4 integration. Also fixed a latent bug: `llm_judge`
+  used `payload.template` (None for multi-turn) → now `payload.body_text`.
 - **D4 — Repeat-and-confirm** ✅ `ScopeRule.confirm_trials` (default 1) +
   `confirm_policy` (majority|any|all). When a candidate VULNERABLE verdict
   appears and `confirm_trials > 1`, the campaign re-probes N-1 more times and
@@ -44,13 +60,25 @@ short and current; append a dated entry each session.
   Patterns are NFKC-normalized so Thai combining-mark ordering matches. Tests
   added. Logic verified 6/6.
 
-### Verification caveat (important)
-The review/impl sandbox could **not** run the real `pytest` suite reliably: its
-mounted-filesystem view did not reflect in-place file edits, so imports/tests ran
-against stale copies. Each change above was instead verified with **standalone
-logic scripts** that replicate the exact algorithm (no dependency on the mount).
-**Action for next session / you:** run the real suite locally to confirm:
-`pytest -q` (Python ≥3.11). All new code is plain stdlib + existing deps.
+### Verification status (updated session 4 — RESOLVED)
+The real suite now runs green. Session 4 stood up a genuine interpreter in the
+sandbox (via `uv`, on a non-mounted path) and ran everything end-to-end:
+
+- **`pytest`: 64 passed** (52 unit + 12 integration), incl. all new D2 tests and
+  a backward-compat check that single-shot `PI-001` still fires.
+- **`ruff check src tests`: clean.**
+- **`mypy src` (`--strict`): clean, 36 files.**
+
+Two environment gotchas worth knowing (neither is a code bug):
+1. **httpx + SOCKS proxy.** The integration tests hit a local mock; if the shell
+   exports `ALL_PROXY=socks5h://…`, httpx tries to route `127.0.0.1` through it
+   and every integration test errors with a `socksio` ImportError. `no_proxy`
+   was *not* honoured for `ALL_PROXY`. Fix: `unset *_PROXY` (or `pip install
+   httpx[socks]`). Confirmed root cause, not a scanner bug.
+2. **`test_rate_limiter_enforces_ceiling` blocks ~60s.** `RateLimiter(1)` refills
+   1 token/60s, so the 2nd `acquire()` genuinely sleeps ~60s. It passes but makes
+   the suite look hung at ~50/64. This is backlog #6 — rewrite it to use a small
+   capacity with a fast refill and assert real throttling in <1s.
 
 ---
 
@@ -114,11 +142,17 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 
 ## Next actions (top of stack)
 
-1. **Run `pytest` locally** to confirm D9/D8/D7 (sandbox couldn't — see caveat).
-2. Implement **D1 baseline-diff** + mock `ECHO` mode (kills a false-positive class).
-3. Implement **D4 repeat-and-confirm** + mock `INTERMITTENT` mode.
-4. Implement **D5 repro/manifest** (also closes backlog #9, severity in DB).
-5. Wire or quarantine the **mutators** (backlog #1); then stand up CI (plan E1).
+0. **Commit the D2 work** (staged, not committed — see git-lock note). Suggested:
+   `git add -A && git commit -m "feat(detection): D2 multi-turn probes + native/ sequential conversation transport + tests"`
+1. Implement **D5 repro/manifest** (also closes backlog #9, severity in DB) — now
+   the top remaining P0 credibility item.
+2. Wire or quarantine the **mutators** (backlog #1) — still dead code.
+3. Rewrite **`test_rate_limiter_enforces_ceiling`** (backlog #6) so the suite
+   isn't 60s-bound; then stand up CI (plan E1) now that the suite is green.
+4. Implement **D3 streaming (SSE/NDJSON)** — the mock already has a `/chat/stream`
+   route and `AISPLOIT_MOCK_STREAM`; biggest silent-failure risk on real targets.
+5. Consider MT-002 (persona→signature) coverage: only MT-001 (canary) has an
+   integration test; add a signature-detection multi-turn assertion.
 
 ---
 
@@ -141,6 +175,18 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 
 ## Change log
 
+- **2026-07-15 (session 4)** — Finished the uncommitted **D2 (multi-turn)** WIP.
+  Closed the gaps that blocked it: (a) `PlaywrightDriver` didn't implement
+  `send_conversation`, so it no longer satisfied the `Transport` protocol
+  (mypy `arg-type` error at `cli.py`); added it. (b) Replaced the
+  monkey-patched `ConversationMixin` with a shared `send_turns_sequentially`
+  helper (removed a `type: ignore`). (c) Fixed a `no-any-return` in
+  `_build_conversation_body` (typed `cast`). (d) `llm_judge` used
+  `payload.template` (None for multi-turn) → `payload.body_text`. (e) Tidied a
+  stale `ConversationMixin` doc-comment. **First green run of the real suite:**
+  64 pytest passed, ruff clean, mypy --strict clean. Not committed (git mount is
+  read-restricted this session; a stale `.git/index.lock` is present and could
+  not be unlinked from the sandbox — remove it before committing).
 - **2026-07-14 (session 3)** — Fixed pre-existing mypy/ruff errors that session 2
   never caught (playwright type annotations, pipeline `assert_never`, scheduler
   `BaseException` narrowing, CLI return types, llm_judge block iteration,

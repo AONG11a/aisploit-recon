@@ -257,3 +257,115 @@ async def test_confirm_trials_default_one_unchanged() -> None:
         result = await _campaign(target, confirm_trials=1).run(pi_payloads)
     verdicts = {f.payload.id: f.result.verdict for f in result.findings}
     assert verdicts.get("PI-001") is Verdict.VULNERABLE
+
+
+# --- D2: multi-turn probes ---------------------------------------------------
+
+
+class _ConversationServerCtx:
+    """Server context for D2 multi-turn tests. Uses the /conversation endpoint."""
+
+    def __init__(self, vulnerable: bool) -> None:
+        self.vulnerable = vulnerable
+        self.port = _free_port()
+        self._httpd: WSGIServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> str:
+        os.environ["AISPLOIT_MOCK_VULNERABLE"] = "1" if self.vulnerable else "0"
+        app = _load_mock_app()
+        self._httpd = make_server("127.0.0.1", self.port, app)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        return f"http://127.0.0.1:{self.port}/conversation"
+
+    def __exit__(self, *exc: object) -> None:
+        if self._httpd:
+            self._httpd.shutdown()
+
+
+def _conversation_campaign(
+    target: str,
+    confirm_trials: int = 1,
+) -> Campaign:
+    """Campaign configured for native multi-turn via /conversation endpoint."""
+    scope = ScopeConfig(
+        proof=AuthorizationProof(
+            program="internal:test",
+            scope_reference="local",
+            authorized_by="ci",
+            authorized_at=datetime.now(UTC),
+        ),
+        rules=ScopeRule(
+            allowed_hosts=["127.0.0.1"],
+            max_requests_per_minute=600,
+            allow_private_destinations=True,
+            confirm_trials=confirm_trials,
+        ),
+    )
+    driver = HttpDriver(
+        HttpConfig(
+            body_template={"turns": "{turns}"},
+            response_path="response",
+            conversation_endpoint="/conversation",
+        )
+    )
+    return Campaign(
+        target_url=target,
+        transport=driver,
+        pipeline=DetectionPipeline(llm_judge=None),
+        scope_guard=ScopeGuard(scope),
+        rate_limiter=RateLimiter(600),
+        max_concurrent=4,
+        confirm_trials=confirm_trials,
+    )
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_canary_fires_vulnerable_mode() -> None:
+    """D2 acceptance: a 2-turn canary payload fires against the vulnerable mock."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    mt_payloads = [p for p in registry.enabled() if p.id == "MT-001"]
+    assert mt_payloads, "MT-001 payload not found in library"
+    with _ConversationServerCtx(vulnerable=True) as target:
+        result = await _conversation_campaign(target).run(mt_payloads)
+    verdicts = {f.payload.id: f.result.verdict for f in result.findings}
+    assert verdicts.get("MT-001") is Verdict.VULNERABLE
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_canary_quiet_secure_mode() -> None:
+    """D2 acceptance: the same multi-turn payload must NOT fire in secure mode."""
+    registry = PayloadRegistry.from_directory(_LIB)
+    mt_payloads = [p for p in registry.enabled() if p.id == "MT-001"]
+    with _ConversationServerCtx(vulnerable=False) as target:
+        result = await _conversation_campaign(target).run(mt_payloads)
+    vulns = [f for f in result.findings if f.result.verdict is Verdict.VULNERABLE]
+    assert not vulns
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_sequential_fallback() -> None:
+    """D2: when conversation_endpoint is None, ConversationMixin sends turns
+    sequentially via /chat and detection still works on the final response.
+    """
+    registry = PayloadRegistry.from_directory(_LIB)
+    mt_payloads = [p for p in registry.enabled() if p.id == "MT-001"]
+    # No conversation_endpoint: use the standard /chat campaign.
+    with _ServerCtx(vulnerable=True) as target:
+        result = await _campaign(target).run(mt_payloads)
+    verdicts = {f.payload.id: f.result.verdict for f in result.findings}
+    assert verdicts.get("MT-001") is Verdict.VULNERABLE
+
+
+@pytest.mark.asyncio
+async def test_single_shot_unchanged_after_d2() -> None:
+    """D2 backward-compat: single-shot PI-001 still fires VULNERABLE after the
+    multi-turn changes. Ensures no regression in the single-shot path.
+    """
+    registry = PayloadRegistry.from_directory(_LIB)
+    pi_payloads = [p for p in registry.enabled() if p.id == "PI-001"]
+    with _ServerCtx(vulnerable=True) as target:
+        result = await _campaign(target).run(pi_payloads)
+    verdicts = {f.payload.id: f.result.verdict for f in result.findings}
+    assert verdicts.get("PI-001") is Verdict.VULNERABLE

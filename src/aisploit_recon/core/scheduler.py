@@ -24,7 +24,12 @@ from aisploit_recon.detection.pipeline import DetectionPipeline
 from aisploit_recon.detection.types import DetectionResult, Verdict
 from aisploit_recon.payloads.models import Payload, PayloadCategory
 from aisploit_recon.payloads.mutators import apply_mutators
-from aisploit_recon.transport.base import ProbeRequest, Transport
+from aisploit_recon.transport.base import (
+    ConversationRequest,
+    ProbeRequest,
+    ProbeResponse,
+    Transport,
+)
 from aisploit_recon.utils.crypto import content_digest
 from aisploit_recon.utils.logging import get_logger
 
@@ -77,11 +82,27 @@ class Campaign:
             if not p.enabled:
                 continue
             canary = CanaryDetector.generate_canary() if p.requires_canary else None
-            text = p.template.replace("{canary}", canary) if canary else p.template
-            if p.mutators:
-                text = apply_mutators(text, p.mutators)
+            if p.is_multi_turn:
+                text = self._render_turns(p, canary)
+            else:
+                text = p.template or ""
+                if canary:
+                    text = text.replace("{canary}", canary)
+                if p.mutators:
+                    text = apply_mutators(text, p.mutators)
             planned.append(PlannedProbe(p.id, text, canary))
         return planned
+
+    @staticmethod
+    def _render_turns(payload: Payload, canary: str | None) -> str:
+        """Render a multi-turn payload's turns into a display string.
+
+        For dry-run / logging: shows each turn with canary substituted.
+        """
+        turns = payload.turns or []
+        if canary:
+            turns = [t.replace("{canary}", canary) for t in turns]
+        return " → ".join(turns)
 
     async def run(self, payloads: list[Payload]) -> CampaignResult:
         # Fail-closed authorization BEFORE any setup or network activity.
@@ -177,21 +198,23 @@ class Campaign:
             canary = (
                 CanaryDetector.generate_canary() if payload.requires_canary else None
             )
-            text = (
-                payload.template.replace("{canary}", canary)
-                if canary
-                else payload.template
-            )
-            if payload.mutators:
-                text = apply_mutators(text, payload.mutators)
 
-            resp = await self._transport.send(
-                ProbeRequest(
-                    target_url=self._target,
-                    payload_text=text,
-                    metadata={"payload_id": payload.id},
+            if payload.is_multi_turn:
+                resp = await self._send_multi_turn(payload, canary)
+            else:
+                text = payload.template or ""
+                if canary:
+                    text = text.replace("{canary}", canary)
+                if payload.mutators:
+                    text = apply_mutators(text, payload.mutators)
+                resp = await self._transport.send(
+                    ProbeRequest(
+                        target_url=self._target,
+                        payload_text=text,
+                        metadata={"payload_id": payload.id},
+                    )
                 )
-            )
+
             if not resp.ok:
                 log.warning("probe.transport_error", payload=payload.id, error=resp.error)
                 return None
@@ -207,7 +230,7 @@ class Campaign:
                 and self._confirm_trials > 1
             ):
                 result = await self._confirm(
-                    payload, text, canary, result
+                    payload, canary, result
                 )
 
             # Keep only actionable outcomes; drop clean NOT_VULNERABLE to reduce noise.
@@ -223,10 +246,28 @@ class Campaign:
                 )
             return None
 
+    async def _send_multi_turn(
+        self, payload: Payload, canary: str | None
+    ) -> ProbeResponse:
+        """D2: send a multi-turn conversation.
+
+        Substitutes ``{canary}`` in any turn that contains it, then delegates
+        to the transport's ``send_conversation``.
+        """
+        turns = list(payload.turns or [])
+        if canary:
+            turns = [t.replace("{canary}", canary) for t in turns]
+        return await self._transport.send_conversation(
+            ConversationRequest(
+                target_url=self._target,
+                turns=turns,
+                metadata={"payload_id": payload.id},
+            )
+        )
+
     async def _confirm(
         self,
         payload: Payload,
-        text: str,
         canary: str | None,
         first_result: DetectionResult,
     ) -> DetectionResult:
@@ -240,13 +281,25 @@ class Campaign:
 
         for trial in range(self._confirm_trials - 1):
             await self._limiter.acquire()
-            resp = await self._transport.send(
-                ProbeRequest(
-                    target_url=self._target,
-                    payload_text=text,
-                    metadata={"payload_id": payload.id, "trial": str(trial + 2)},
+            # Re-render and re-send the payload (single-shot or multi-turn).
+            if payload.is_multi_turn:
+                resp = await self._send_multi_turn(payload, canary)
+            else:
+                text = payload.template or ""
+                if canary:
+                    text = text.replace("{canary}", canary)
+                if payload.mutators:
+                    text = apply_mutators(text, payload.mutators)
+                resp = await self._transport.send(
+                    ProbeRequest(
+                        target_url=self._target,
+                        payload_text=text,
+                        metadata={
+                            "payload_id": payload.id,
+                            "trial": str(trial + 2),
+                        },
+                    )
                 )
-            )
             if not resp.ok:
                 log.warning(
                     "probe.confirm_transport_error",
