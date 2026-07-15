@@ -3,9 +3,9 @@ __pycache__/
 .venv/
 venv/
 .env
-evidence/
-reports/
-auth/
+/evidence/
+/reports/
+/auth/
 *.har
 *.png
 *.sqlite3
