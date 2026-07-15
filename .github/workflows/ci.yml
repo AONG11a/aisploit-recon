@@ -25,16 +25,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install (dev + optional extras for full type coverage)
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,judge,browser]"
+          pip install pydantic pydantic-settings structlog typer rich jinja2 pyyaml httpx \
+                      pytest pytest-asyncio hypothesis mypy ruff types-PyYAML flask \
+                      anthropic playwright
 
       - name: Ruff (lint)
         run: ruff check src tests
 
       - name: Mypy (strict)
-        run: mypy --explicit-package-bases --no-incremental src
+        run: mypy src
 
       - name: Pytest
         env:
