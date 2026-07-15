@@ -22,6 +22,7 @@ from aisploit_recon.reporting.export import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_payload(pid: str = "PI-001", sev: float = 8.0) -> Payload:
     return Payload(
         id=pid,
@@ -56,6 +57,7 @@ def _store_with_findings(tmp_path: Path, findings: list[Finding], run_id: str) -
 # parse_fail_on
 # ---------------------------------------------------------------------------
 
+
 def test_parse_fail_on_levels() -> None:
     assert parse_fail_on("critical") == 5
     assert parse_fail_on("high") == 4
@@ -77,6 +79,7 @@ def test_parse_fail_on_invalid() -> None:
 # ---------------------------------------------------------------------------
 # ci_gate
 # ---------------------------------------------------------------------------
+
 
 def test_ci_gate_passes_when_no_severe_findings(tmp_path: Path) -> None:
     """A run with only LOW findings passes a 'high' gate."""
@@ -120,6 +123,7 @@ def test_ci_gate_critical_only(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # diff_runs
 # ---------------------------------------------------------------------------
+
 
 def test_diff_new_finding(tmp_path: Path) -> None:
     """Run B has a finding not in run A → new."""
@@ -170,6 +174,7 @@ def test_diff_no_changes(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # export_finding
 # ---------------------------------------------------------------------------
+
 
 def test_export_markdown(tmp_path: Path) -> None:
     """Markdown export contains key fields."""

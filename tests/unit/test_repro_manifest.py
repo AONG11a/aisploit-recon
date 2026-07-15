@@ -35,9 +35,13 @@ def test_http_manifest_never_contains_secret() -> None:
 
 def test_curl_repro_shape() -> None:
     manifest = {
-        "transport": "http", "method": "POST", "url": "http://t/chat",
+        "transport": "http",
+        "method": "POST",
+        "url": "http://t/chat",
         "headers": {"Authorization": "<REDACTED>"},
-        "body": {"message": "hello"}, "response_path": "response", "stream": False,
+        "body": {"message": "hello"},
+        "response_path": "response",
+        "stream": False,
     }
     curl = _curl_repro(manifest)
     assert curl.startswith("curl ")
@@ -48,29 +52,55 @@ def test_curl_repro_shape() -> None:
 
 
 def test_curl_repro_streaming_adds_no_buffer() -> None:
-    manifest = {"transport": "http", "method": "POST", "url": "http://t/s",
-                "headers": {}, "body": {"m": "x"}, "response_path": "response",
-                "stream": True}
+    manifest = {
+        "transport": "http",
+        "method": "POST",
+        "url": "http://t/s",
+        "headers": {},
+        "body": {"m": "x"},
+        "response_path": "response",
+        "stream": True,
+    }
     assert "--no-buffer" in _curl_repro(manifest)
 
 
 def test_repro_dispatch() -> None:
     assert _repro(None) is None
-    assert _repro({"transport": "playwright", "url": "http://t/",
-                   "input_selector": "#in", "submit_selector": "#go",
-                   "response_selector": "#out"}).startswith("Playwright:")
+    assert _repro(
+        {
+            "transport": "playwright",
+            "url": "http://t/",
+            "input_selector": "#in",
+            "submit_selector": "#go",
+            "response_selector": "#out",
+        }
+    ).startswith("Playwright:")
 
 
 def _finding_with_manifest() -> Finding:
-    payload = Payload(id="PI-001", category=PayloadCategory.PROMPT_INJECTION,
-                      name="t", template="{canary}", detection=DetectionStrategy.CANARY,
-                      severity_base=8.0)
+    payload = Payload(
+        id="PI-001",
+        category=PayloadCategory.PROMPT_INJECTION,
+        name="t",
+        template="{canary}",
+        detection=DetectionStrategy.CANARY,
+        severity_base=8.0,
+    )
     result = DetectionResult(verdict=Verdict.VULNERABLE, confidence=0.95, detector="canary")
-    return Finding(payload=payload, result=result, target_url="http://t/chat",
-                   request_manifest={"transport": "http", "method": "POST",
-                                     "url": "http://t/chat", "headers": {},
-                                     "body": {"message": "x"}, "response_path": "response",
-                                     "stream": False})
+    return Finding(
+        payload=payload,
+        result=result,
+        target_url="http://t/chat",
+        request_manifest={
+            "transport": "http",
+            "method": "POST",
+            "url": "http://t/chat",
+            "headers": {},
+            "body": {"message": "x"},
+            "response_path": "response",
+            "stream": False,
+        },
+    )
 
 
 def test_evidence_store_persists_manifest_and_severity(tmp_path: Path) -> None:
