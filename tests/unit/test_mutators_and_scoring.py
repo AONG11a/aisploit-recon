@@ -65,15 +65,17 @@ def test_critical_bucketing() -> None:
 
 
 async def test_rate_limiter_enforces_ceiling() -> None:
-    """A limiter with capacity=1 must block on the 2nd acquire until a token
-    refills.  This proves the limiter actually throttles, not just that time
-    passes."""
-    limiter = RateLimiter(max_per_minute=1)  # capacity=1, refill 1/60s
-    await limiter.acquire()  # consumes the only token instantly
+    """Draining the bucket forces the next acquire to wait for a refill, which
+    proves the limiter actually throttles (not just that time passes). Uses a
+    fast refill (10 tokens/s) so the wait is ~0.1s, not the 60s a capacity-1
+    limiter would take — keeps the suite/CI quick (was backlog #6)."""
+    limiter = RateLimiter(max_per_minute=600)  # 10 tokens/s, capacity 600
+    for _ in range(600):
+        await limiter.acquire()  # drain the initially-full bucket (instant)
 
     start = time.monotonic()
-    await limiter.acquire()  # must wait ~1s for the next token
+    await limiter.acquire()  # bucket empty -> must wait ~1/10s for a refill
     elapsed = time.monotonic() - start
 
-    # Should have blocked for roughly one token-refill period (1/60s ≈ 1s).
-    assert elapsed >= 0.5, f"Rate limiter did not block; elapsed={elapsed:.3f}s"
+    assert elapsed >= 0.05, f"Rate limiter did not throttle; elapsed={elapsed:.3f}s"
+    assert elapsed < 5.0, f"Rate limiter blocked far too long; elapsed={elapsed:.3f}s"

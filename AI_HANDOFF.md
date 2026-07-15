@@ -18,9 +18,11 @@ short and current; append a dated entry each session.
   (repeat-and-confirm); fixed pre-existing mypy/ruff debt.
 - **Session 4:** finished the half-done **D2 (multi-turn probes)** WIP and — for
   the first time — **ran the real suite to green** (`pytest`/`ruff`/`mypy --strict`).
-- **Session 5 (this one):** committed **D2** (`d25d389`); implemented **D3
-  streaming** (SSE/NDJSON assembly) — streaming targets are now scanned instead
-  of silently returning zero findings. 66 tests green, ruff + mypy --strict clean.
+- **Session 5 (this one):** committed **D2** (`d25d389`); shipped **D3 streaming**
+  (`e512fe0`), **D5 repro/manifest** (`cd04290`), **mutator wiring + tests**
+  (`79162f1`), and **CI** (GitHub Actions: ruff + mypy --strict + pytest on
+  3.11/3.12) with the 60s rate-limiter test rewritten. **75 tests green in ~7s**,
+  ruff + mypy --strict clean.
 
 ### Implemented so far (from docs/DESIGN.md)
 - **D5 — Reproduction manifest + repro** ✅ (session 5, core) `ProbeResponse.request_manifest`
@@ -123,8 +125,9 @@ Two environment gotchas worth knowing (neither is a code bug):
    `Payload` model validator (fail loud on load).
 
 **Nice-to-fix / robustness**
-6. **`test_rate_limiter_enforces_ceiling` asserts nothing meaningful**
-   (`elapsed >= 0`). Rewrite to assert a burst-exhausted bucket blocks.
+6. ✅ **DONE (session 5).** ~~`test_rate_limiter_enforces_ceiling` asserts nothing
+   meaningful / blocks 60s.~~ Rewritten: drains a fast-refill bucket (10 tok/s) and
+   asserts the next acquire is throttled in ~0.1s. Full suite now 75 tests in ~7s.
 7. **Playwright driver only catches `PwTimeout`**; other errors escape as campaign
    errors instead of a graceful `ProbeResponse(error=…)` like the HTTP driver.
 8. **Duplicate docs.** `ARCHITECTURE.md` / `IMPLEMENTATION_PLAN.md` /
@@ -157,17 +160,18 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 
 ## Next actions (top of stack)
 
-0. **Commit the D2 work** (staged, not committed — see git-lock note). Suggested:
-   `git add -A && git commit -m "feat(detection): D2 multi-turn probes + native/ sequential conversation transport + tests"`
-1. Implement **D5 repro/manifest** (also closes backlog #9, severity in DB) — now
-   the top remaining P0 credibility item.
-2. Wire or quarantine the **mutators** (backlog #1) — still dead code.
-3. Rewrite **`test_rate_limiter_enforces_ceiling`** (backlog #6) so the suite
-   isn't 60s-bound; then stand up CI (plan E1) now that the suite is green.
-4. Implement **D3 streaming (SSE/NDJSON)** — the mock already has a `/chat/stream`
-   route and `AISPLOIT_MOCK_STREAM`; biggest silent-failure risk on real targets.
-5. Consider MT-002 (persona→signature) coverage: only MT-001 (canary) has an
-   integration test; add a signature-detection multi-turn assertion.
+D2/D3/D5-core/mutators/CI are done & committed (see change log). Remaining:
+
+1. **D6 — Auth capture** (P1 reach): capture/refresh a logged-in session for the
+   HTTP + Playwright transports so authenticated targets can be scanned.
+2. **D5b — Platform export / run-diff / CI-gate** (P2 adoption): `aisploit export
+   --format hackerone|huntr`, `aisploit diff runA runB`, `--fail-on high`.
+3. **Backlog #2** (CLI expired-auth → clean SCOPE VIOLATION, not a traceback) and
+   **#3** (verify `judge_model` default is a valid model string).
+4. **Backlog #7** (Playwright driver: catch non-timeout errors gracefully) and
+   **#8** (delete duplicate root docs) and **#10** (make `playwright` a lazy
+   `[browser]` import so HTTP-only users can run `--help` without it).
+5. MT-002 (persona→signature) still lacks a dedicated integration test.
 
 ---
 
@@ -189,6 +193,11 @@ Biggest silent-failure risk: **streaming targets (D3)** return zero findings tod
 ---
 
 ## Change log
+
+- **2026-07-15 (session 5, cont.)** — Stood up **CI** (`.github/workflows/ci.yml`:
+  ruff + mypy --strict + pytest, matrix py3.11/3.12) and rewrote the 60s
+  rate-limiter test (backlog #6) — full suite is now 75 tests in ~7s. This
+  completes the requested roadmap: D2 commit → D3 → D5 → mutators → CI.
 
 - **2026-07-15 (session 5, cont.)** — Confirmed + tested **mutator wiring**
   (backlog #1, already wired in the D2 refactor): added planner + on-the-wire
